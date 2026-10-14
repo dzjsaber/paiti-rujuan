@@ -40,7 +40,7 @@ yarn-error.*
 /ios
 /android
 
-# M1-A verification artifacts (local only)
-dist-m1a*/
+# Verification artifacts (local only)
+dist-m1*/
 m1a-*.log
 m1a-audit*.json

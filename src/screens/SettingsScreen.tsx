@@ -1,0 +1,105 @@
+/** 设置页：API Key 配置（SecureStore）、技术自检入口、隐私说明。 */
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { clearApiKey, getApiKey, maskKey, saveApiKey } from '../services/apiKey';
+
+export interface SettingsScreenProps {
+  onBack: () => void;
+  onOpenSelfTest: () => void;
+}
+
+export function SettingsScreen({ onBack, onOpenSelfTest }: SettingsScreenProps) {
+  const [current, setCurrent] = useState<string | null>(null);
+  const [input, setInput] = useState('');
+
+  const refresh = useCallback(async () => {
+    setCurrent(await getApiKey());
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const save = useCallback(async () => {
+    const v = input.trim();
+    if (!v) {
+      Alert.alert('请输入 API Key');
+      return;
+    }
+    await saveApiKey(v);
+    setInput('');
+    await refresh();
+    Alert.alert('已保存', 'API Key 已保存到本机安全存储。');
+  }, [input, refresh]);
+
+  const clear = useCallback(async () => {
+    await clearApiKey();
+    await refresh();
+  }, [refresh]);
+
+  return (
+    <View style={styles.page}>
+      <View style={styles.header}>
+        <Pressable onPress={onBack} hitSlop={8}>
+          <Text style={styles.back}>← 返回</Text>
+        </Pressable>
+        <Text style={styles.title}>设置</Text>
+        <View style={styles.spacer} />
+      </View>
+
+      <Text style={styles.section}>智谱 API Key（自带，仅存本机）</Text>
+      <Text style={styles.hint}>当前：{maskKey(current)}</Text>
+      <TextInput
+        style={styles.input}
+        value={input}
+        onChangeText={setInput}
+        placeholder="粘贴你的 API Key"
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+      />
+      <Pressable style={styles.btn} onPress={() => void save()}>
+        <Text style={styles.btnText}>保存 Key</Text>
+      </Pressable>
+      {!!current && (
+        <Pressable style={styles.btnGhost} onPress={() => void clear()}>
+          <Text style={styles.btnGhostText}>清除已保存的 Key</Text>
+        </Pressable>
+      )}
+
+      <Pressable style={styles.btnGhost} onPress={onOpenSelfTest}>
+        <Text style={styles.btnGhostText}>运行技术自检（SQLite / 图片压缩）</Text>
+      </Pressable>
+
+      <Text style={styles.privacy}>
+        隐私说明：试卷图片会在本地压缩后发送至智谱识别接口用于提取题目；题库与教材数据默认保存在本机；
+        AI 讲解只发送当前题目所需文本。不会向任何第三方图床传输图片。
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: '#f7f8fa', paddingTop: 64, paddingHorizontal: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  back: { fontSize: 16, color: '#1c5cd6' },
+  title: { fontSize: 20, fontWeight: '800', color: '#1a1a1a' },
+  spacer: { width: 52 },
+  section: { marginTop: 28, fontSize: 15, fontWeight: '700', color: '#333' },
+  hint: { marginTop: 8, fontSize: 13, color: '#777' },
+  input: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dbe1ec',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  btn: { marginTop: 12, backgroundColor: '#1c5cd6', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  btnGhost: { marginTop: 10, borderRadius: 10, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
+  btnGhostText: { color: '#31518a', fontSize: 14 },
+  privacy: { marginTop: 24, fontSize: 11, color: '#8a94a6', lineHeight: 17 },
+});
