@@ -4,12 +4,22 @@
   "main": "index.ts",
   "dependencies": {
     "expo": "~57.0.29",
+    "expo-camera": "~57.0.6",
+    "expo-document-picker": "~57.0.3",
+    "expo-image-manipulator": "~57.0.21",
+    "expo-image-picker": "~57.0.20",
+    "expo-secure-store": "~57.0.4",
+    "expo-sqlite": "~57.0.4",
     "expo-status-bar": "~57.0.1",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^3.11.174",
     "react": "19.2.3",
     "react-native": "0.86.3"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "@types/react": "~19.2.2",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
   "scripts": {

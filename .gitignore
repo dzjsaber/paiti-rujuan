@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# M1-A verification artifacts (local only)
+dist-m1a*/
+m1a-*.log
+m1a-audit*.json
