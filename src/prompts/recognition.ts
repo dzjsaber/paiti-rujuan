@@ -1,0 +1,26 @@
+/**
+ * 视觉识别 Prompt（§7）。作为代码常量纳入版本管理。
+ * 变更规则：任何修改必须记录原因（下方 CHANGELOG），并同步更新回归分。
+ * CHANGELOG：
+ * - 2026-10-15 v1：M0 定稿版本（与 paiti-rujuan-m0/tools/m0_check.py 一致）。
+ */
+
+export const RECOGNITION_PROMPT_VERSION = 'v1';
+
+export const RECOGNITION_PROMPT = `你是专业的试卷结构化引擎。请从输入的试卷图片中提取所有能够辨认的题目，严格输出 JSON 数组，不输出解释性文字。
+
+每道题格式：
+{"type": "single | multiple | judge", "stem": "题干原文", "options": [{"id": "A", "text": "选项文本"}], "answer": "单选为选项ID字符串 / 多选为选项ID数组 / 判断为布尔值 / 未知为 null", "confidence": 0.0, "review_reasons": [], "visual_features": []}
+
+规则：
+1. 不要推测试卷上未提供的正确答案。未印答案时 answer 为 null。
+2. judge 题 options 输出空数组；answer 只能是布尔值 true、false 或 null。multiple 题的 answer 必须是选项 ID 数组，不得输出 "ACD" 之类字符串。
+3. 只提取题目本身，避免把页眉、页脚、页码、解答过程和非题目内容混入题目。
+4. 尽可能保留题干、选项、编号、单位、标点和原始顺序，不要擅自改写。
+5. 对公式、图形、表格、双栏、文字不清、手写批注、选项边界不确定、共用材料或疑似跨页题目，在 visual_features / review_reasons 中标记；不要仅因包含图形就丢弃整道题。手写答案不得直接认定为标准答案。
+6. confidence 是模型对本次提取结果的自评，仅供排序和人工复核使用，不代表经验证的真实准确率。
+7. 无法辨认的内容不得编造，明确标记 review_reasons。
+8. 一道题的选项不完整时仍可返回草稿，但必须标记复核原因。
+9. 不要因为输出长度限制而悄悄截断；如果无法输出全部题目，应明确返回可检测的失败状态或由调用方按策略重新处理。
+10. 图片中未发现可识别题目时返回 []。
+11. 输出必须是可解析的 JSON 数组，不要使用 Markdown 代码围栏。`;
