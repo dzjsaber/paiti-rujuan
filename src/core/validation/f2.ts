@@ -83,6 +83,22 @@ export function f2ValidateQuestion(input: unknown, opts: F2Options = {}): F2Resu
   const ids = normOptions.map((o) => o.id);
   if (new Set(ids).size !== ids.length) return invalid('V3: 选项 id 重复');
 
+  // V3b 图形题/占位选项检测（M1-C 真机反馈：图形题的选项被识别为"如图A所示"类占位文本，
+  // 四个选项无法区分内容，必须对照原图人工确认；不丢弃题目，只标记复核）
+  if (qtype === 'single' || qtype === 'multiple') {
+    const normTexts = normOptions.map((o) => o.text.replace(/[\s，。、；：""''（）()【】.]/g, ''));
+    const isFigureLike = (t: string) =>
+      t.length > 0 && t.length <= 14 && (/^(如图|见图|如右图|如左图|下图|上图|图形)/.test(t) || /图[abcdABCD]?$/.test(t));
+    const dupCount = normTexts.length - new Set(normTexts).size;
+    const figCount = normTexts.filter(isFigureLike).length;
+    if (dupCount > 0 || figCount >= 2) {
+      addReview(
+        'V3',
+        `选项疑似图形或重复（${dupCount} 处重复，${figCount} 项为"如图"类文本），选项内容无法用文字区分，需对照原图确认`,
+      );
+    }
+  }
+
   let answer = q.answer;
   if (opts.normalize) {
     const n = normalizeAnswer(qtype, answer, ids);

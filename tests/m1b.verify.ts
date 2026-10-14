@@ -223,6 +223,40 @@ check('F2 选项 id 重复 → invalid', () => {
   assert.equal(f2ValidateQuestion(q).status, 'invalid');
 });
 
+check('F2 图形题占位选项（全部"如图X所示"）→ needs_review 且原因可读', () => {
+  const q = {
+    type: 'single',
+    stem: '下列图形中，正确表示函数关系的是（　）',
+    options: [
+      { id: 'A', text: '如图A所示' },
+      { id: 'B', text: '如图B所示' },
+      { id: 'C', text: '如图C所示' },
+      { id: 'D', text: '如图D所示' },
+    ],
+    answer: 'B',
+    confidence: 0.9,
+  };
+  const r = f2ValidateQuestion(q);
+  assert.equal(r.status, 'needs_review');
+  assert.ok(r.issues.some((i) => i.message.includes('图形')), '应给出图形选项提示');
+});
+
+check('F2 选项文本重复 → needs_review', () => {
+  const q = {
+    type: 'single',
+    stem: '下列关于函数的说法正确的是',
+    options: [
+      { id: 'A', text: '甲' },
+      { id: 'B', text: '甲' },
+    ],
+    answer: 'A',
+    confidence: 0.9,
+  };
+  const r = f2ValidateQuestion(q);
+  assert.equal(r.status, 'needs_review');
+  assert.ok(r.issues.some((i) => i.message.includes('重复')), '应给出重复选项提示');
+});
+
 check('F2 页内重复题干 → 第二题 needs_review', () => {
   const q1 = JSON.parse(OK_SINGLE) as unknown;
   const q2 = JSON.parse(OK_SINGLE) as unknown;
