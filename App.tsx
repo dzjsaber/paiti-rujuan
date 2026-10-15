@@ -11,15 +11,19 @@ import { getApiKey } from './src/services/apiKey';
 import { LLMService } from './src/services/llm/LLMService';
 import { HomeScreen, type ReviewParams } from './src/screens/HomeScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
+import { PracticeScreen } from './src/screens/PracticeScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { SelfTestScreen } from './src/screens/SelfTestScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { WrongBookScreen } from './src/screens/WrongBookScreen';
 
 type Screen =
   | { name: 'home' }
   | { name: 'review'; mode: 'new'; params: ReviewParams }
   | { name: 'review'; mode: 'resume'; batchId: string }
   | { name: 'history' }
+  | { name: 'practice'; mode: 'bank' | 'wrong'; order: 'seq' | 'random' }
+  | { name: 'wrongbook' }
   | { name: 'settings' }
   | { name: 'selftest' };
 
@@ -82,6 +86,8 @@ export default function App() {
           onOpenSettings={() => setScreen({ name: 'settings' })}
           onResume={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
           onOpenHistory={() => setScreen({ name: 'history' })}
+          onOpenPractice={() => setScreen({ name: 'practice', mode: 'bank', order: 'seq' })}
+          onOpenWrongBook={() => setScreen({ name: 'wrongbook' })}
         />
       )}
       {screen.name === 'review' && screen.mode === 'new' && (
@@ -103,6 +109,16 @@ export default function App() {
           db={db}
           onBack={goHome}
           onOpenBatch={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
+        />
+      )}
+      {screen.name === 'practice' && (
+        <PracticeScreen db={db} mode={screen.mode} order={screen.order} onDone={goHome} />
+      )}
+      {screen.name === 'wrongbook' && (
+        <WrongBookScreen
+          db={db}
+          onBack={goHome}
+          onPractice={(order) => setScreen({ name: 'practice', mode: 'wrong', order })}
         />
       )}
       {screen.name === 'settings' && (

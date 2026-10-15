@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { DEFAULT_BANK_ID } from '../db/database';
 import { deleteBatch, getUnfinishedBatches, type ImportBatchRow } from '../db/repo_imports';
+import { countWrongBook } from '../db/repo_practice';
 import { countQuestions } from '../db/repo_questions';
 
 export interface ReviewParams {
@@ -22,12 +23,25 @@ export interface HomeScreenProps {
   onResume: (batchId: string) => void;
   /** 导入历史（每次识别一条记录） */
   onOpenHistory: () => void;
+  /** 开始刷题（题库） */
+  onOpenPractice: () => void;
+  /** 错题本 */
+  onOpenWrongBook: () => void;
 }
 
-export function HomeScreen({ db, onOpenReview, onOpenSettings, onResume, onOpenHistory }: HomeScreenProps) {
+export function HomeScreen({
+  db,
+  onOpenReview,
+  onOpenSettings,
+  onResume,
+  onOpenHistory,
+  onOpenPractice,
+  onOpenWrongBook,
+}: HomeScreenProps) {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<ImportBatchRow[]>([]);
+  const [wrongCount, setWrongCount] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -39,6 +53,11 @@ export function HomeScreen({ db, onOpenReview, onOpenSettings, onResume, onOpenH
       setPending(await getUnfinishedBatches(db));
     } catch {
       setPending([]);
+    }
+    try {
+      setWrongCount(await countWrongBook(db, DEFAULT_BANK_ID));
+    } catch {
+      setWrongCount(0);
     }
   }, [db]);
 
@@ -161,6 +180,15 @@ export function HomeScreen({ db, onOpenReview, onOpenSettings, onResume, onOpenH
 
       {busy && <ActivityIndicator style={styles.busy} />}
 
+      <View style={styles.rowBtns}>
+        <Pressable style={styles.rowBtn} onPress={onOpenPractice}>
+          <Text style={styles.rowBtnText}>开始刷题</Text>
+        </Pressable>
+        <Pressable style={styles.rowBtn} onPress={onOpenWrongBook}>
+          <Text style={styles.rowBtnText}>错题本{wrongCount > 0 ? `（${wrongCount}）` : ''}</Text>
+        </Pressable>
+      </View>
+
       {pending.length > 0 && (
         <View style={styles.pendingCard}>
           <View style={styles.pendingHeader}>
@@ -211,6 +239,9 @@ const styles = StyleSheet.create({
   bigBtnAltText: { color: '#1c5cd6', fontSize: 18, fontWeight: '700' },
   bigBtnAltHint: { color: '#8a94a6', fontSize: 12, marginTop: 4 },
   busy: { marginTop: 20 },
+  rowBtns: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  rowBtn: { flex: 1, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea' },
+  rowBtnText: { color: '#31518a', fontSize: 15, fontWeight: '700' },
   pendingCard: { marginTop: 22, backgroundColor: '#fff7e6', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#f0d9a8' },
   pendingHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   pendingTitle: { fontSize: 14, fontWeight: '700', color: '#8a6d1c' },
