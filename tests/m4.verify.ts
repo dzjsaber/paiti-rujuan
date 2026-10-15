@@ -2,6 +2,7 @@
 import { buildSearchTerms } from '../src/core/searchTerms';
 import { renderExplainPrompt } from '../src/prompts/explain';
 import { renderRagPrompt, type RagEvidence } from '../src/prompts/ragExplain';
+import { DEEPSEEK_URL, resolveExplainTarget, ZHIPU_URL, type ExplainSecrets } from '../src/services/llm/providerDefs';
 
 let passed = 0;
 const fails: string[] = [];
@@ -60,6 +61,47 @@ check('renderRagPrompt：依据编号/来源/固定回复要求', () => {
   assert(p.includes('当前导入教材未覆盖该知识点'), '含固定回复句');
   assert(p.includes('禁止伪造引用'), '含防伪引用要求');
   assert(p.includes('（试卷未提供答案）'), '无答案时标注');
+});
+
+const NO_SECRETS: ExplainSecrets = {
+  zhipuApiKey: null,
+  deepseekApiKey: null,
+  custom: { url: '', model: '', apiKey: '' },
+};
+
+check('resolveExplainTarget：智谱免费（无 Key 提示 / 有 Key 指向 glm-4.7-flash）', () => {
+  assert(resolveExplainTarget('zhipu_free', NO_SECRETS).kind === 'missing_config', '无 Key 应提示配置');
+  const ok = resolveExplainTarget('zhipu_free', { ...NO_SECRETS, zhipuApiKey: 'k' });
+  assert(ok.kind === 'api' && ok.url === ZHIPU_URL && ok.model === 'glm-4.7-flash', '免费档应指向 glm-4.7-flash');
+});
+
+check('resolveExplainTarget：智谱高级 → glm-5.3', () => {
+  const t = resolveExplainTarget('zhipu_pro', { ...NO_SECRETS, zhipuApiKey: 'k' });
+  assert(t.kind === 'api' && t.model === 'glm-5.3', '高级档应指向 glm-5.3');
+});
+
+check('resolveExplainTarget：DeepSeek（无 Key 提示 / 有 Key 指向官方端点）', () => {
+  assert(resolveExplainTarget('deepseek', NO_SECRETS).kind === 'missing_config', '无 Key 应提示');
+  const ok = resolveExplainTarget('deepseek', { ...NO_SECRETS, deepseekApiKey: 'd' });
+  assert(ok.kind === 'api' && ok.url === DEEPSEEK_URL && ok.model === 'deepseek-chat', '应指向 DeepSeek 官方端点');
+});
+
+check('resolveExplainTarget：自定义（缺项逐级提示 / 完整通过）', () => {
+  assert(resolveExplainTarget('custom', NO_SECRETS).kind === 'missing_config', '缺 URL 应提示');
+  const noModel = resolveExplainTarget('custom', {
+    ...NO_SECRETS,
+    custom: { url: 'https://x/v1/chat/completions', model: '', apiKey: 'k' },
+  });
+  assert(noModel.kind === 'missing_config' && noModel.message.includes('模型名'), '缺模型名应提示');
+  const full = resolveExplainTarget('custom', {
+    ...NO_SECRETS,
+    custom: { url: 'https://x/v1/chat/completions', model: 'm', apiKey: 'k' },
+  });
+  assert(full.kind === 'api' && full.url === 'https://x/v1/chat/completions' && full.model === 'm', '完整配置应通过');
+});
+
+check('resolveExplainTarget：分享模式', () => {
+  assert(resolveExplainTarget('external', { ...NO_SECRETS, zhipuApiKey: 'k' }).kind === 'share', '应为分享模式');
 });
 
 const total = passed + fails.length;

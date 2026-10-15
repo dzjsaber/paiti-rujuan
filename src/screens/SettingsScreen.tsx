@@ -3,15 +3,22 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { clearApiKey, getApiKey, maskKey, saveApiKey } from '../services/apiKey';
 import {
-  EXPLAIN_MODES,
-  getExplainMode,
+  getExplainProvider,
   getModelTier,
   MODEL_TIERS,
-  saveExplainMode,
+  saveExplainProvider,
   saveModelTier,
-  type ExplainMode,
   type ModelTier,
 } from '../services/modelPrefs';
+import {
+  EXPLAIN_PROVIDERS,
+  getCustomConfig,
+  getDeepseekKey,
+  saveCustomConfig,
+  saveDeepseekKey,
+  type CustomConfig,
+  type ExplainProviderId,
+} from '../services/llm/providers';
 
 export interface SettingsScreenProps {
   onBack: () => void;
@@ -23,12 +30,20 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
   const [current, setCurrent] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [tier, setTier] = useState<ModelTier>('free');
-  const [explainMode, setExplainMode] = useState<ExplainMode>('inapp');
+  const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
+  const [dsKey, setDsKey] = useState<string | null>(null);
+  const [dsInput, setDsInput] = useState('');
+  const [custom, setCustom] = useState<CustomConfig>({ url: '', model: '', apiKey: '' });
+  const [customInput, setCustomInput] = useState<CustomConfig>({ url: '', model: '', apiKey: '' });
 
   const refresh = useCallback(async () => {
     setCurrent(await getApiKey());
     setTier(await getModelTier());
-    setExplainMode(await getExplainMode());
+    setExplainProvider(await getExplainProvider());
+    setDsKey(await getDeepseekKey());
+    const c = await getCustomConfig();
+    setCustom(c);
+    setCustomInput(c);
   }, []);
 
   const chooseTier = useCallback(async (t: ModelTier) => {
@@ -36,10 +51,25 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
     await saveModelTier(t);
   }, []);
 
-  const chooseExplain = useCallback(async (m: ExplainMode) => {
-    setExplainMode(m);
-    await saveExplainMode(m);
+  const chooseExplain = useCallback(async (m: ExplainProviderId) => {
+    setExplainProvider(m);
+    await saveExplainProvider(m);
   }, []);
+
+  const saveDs = useCallback(async () => {
+    await saveDeepseekKey(dsInput);
+    setDsInput('');
+    setDsKey(await getDeepseekKey());
+    Alert.alert('已保存');
+  }, [dsInput]);
+
+  const saveCustom = useCallback(async () => {
+    await saveCustomConfig(customInput);
+    const c = await getCustomConfig();
+    setCustom(c);
+    setCustomInput(c);
+    Alert.alert('已保存', '自定义接口配置已保存到本机。');
+  }, [customInput]);
 
   useEffect(() => {
     void refresh();
@@ -92,6 +122,54 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         </Pressable>
       )}
 
+      <Text style={styles.section}>DeepSeek API Key（可选，用于讲解）</Text>
+      <Text style={styles.hint}>当前：{maskKey(dsKey)}</Text>
+      <TextInput
+        style={styles.input}
+        value={dsInput}
+        onChangeText={setDsInput}
+        placeholder="粘贴 DeepSeek API Key（留空保存可清除）"
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+      />
+      <Pressable style={styles.btn} onPress={() => void saveDs()}>
+        <Text style={styles.btnText}>保存 DeepSeek Key</Text>
+      </Pressable>
+
+      <Text style={styles.section}>自定义接口（可选，OpenAI 兼容）</Text>
+      <Text style={styles.hint}>
+        当前：{custom.url ? `${custom.model || '（未填模型）'} @ ${custom.url}` : '（未配置）'}
+      </Text>
+      <TextInput
+        style={styles.input}
+        value={customInput.url}
+        onChangeText={(t) => setCustomInput((p) => ({ ...p, url: t }))}
+        placeholder="接口地址，如 https://api.moonshot.cn/v1/chat/completions"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      <TextInput
+        style={styles.input}
+        value={customInput.model}
+        onChangeText={(t) => setCustomInput((p) => ({ ...p, model: t }))}
+        placeholder="模型名，如 moonshot-v1-8k"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      <TextInput
+        style={styles.input}
+        value={customInput.apiKey}
+        onChangeText={(t) => setCustomInput((p) => ({ ...p, apiKey: t }))}
+        placeholder="该接口的 API Key"
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+      />
+      <Pressable style={styles.btn} onPress={() => void saveCustom()}>
+        <Text style={styles.btnText}>保存自定义配置</Text>
+      </Pressable>
+
       <Text style={styles.section}>识别模型</Text>
       {(Object.keys(MODEL_TIERS) as ModelTier[]).map((t) => {
         const info = MODEL_TIERS[t];
@@ -114,9 +192,9 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
       <Text style={styles.hint}>高级档按量计费（从智谱账户扣费），使用前请确认余额。</Text>
 
       <Text style={styles.section}>讲解方式</Text>
-      {(Object.keys(EXPLAIN_MODES) as ExplainMode[]).map((m) => {
-        const info = EXPLAIN_MODES[m];
-        const active = explainMode === m;
+      {(Object.keys(EXPLAIN_PROVIDERS) as ExplainProviderId[]).map((m) => {
+        const info = EXPLAIN_PROVIDERS[m];
+        const active = explainProvider === m;
         return (
           <Pressable
             key={m}
@@ -128,6 +206,9 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
               <Text style={styles.tierTag}>{info.tagline}</Text>
             </View>
             <Text style={styles.tierDetail}>{info.detail}</Text>
+            <Text style={styles.tierModel}>
+              {info.supportsRag ? '✓ 支持教材引用' : '× 不支持教材引用（分享模式）'}
+            </Text>
           </Pressable>
         );
       })}

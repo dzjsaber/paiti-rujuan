@@ -15,7 +15,14 @@ import { setQuestionAnalysis, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
 import { renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
 import { TEXT_MODEL, type LLMService } from '../services/llm/LLMService';
-import { getExplainMode, type ExplainMode } from '../services/modelPrefs';
+import { getExplainProvider } from '../services/modelPrefs';
+import {
+  getCustomConfig,
+  getDeepseekKey,
+  resolveExplainTarget,
+  type ExplainProviderId,
+} from '../services/llm/providers';
+import { getApiKey } from '../services/apiKey';
 
 export interface PracticeScreenProps {
   db: SQLiteDatabase;
@@ -103,7 +110,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     usedLibrary: boolean;
   } | null>(null);
   const [adopted, setAdopted] = useState(false);
-  const [explainMode, setExplainMode] = useState<ExplainMode>('inapp');
+  const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
   const scrollRef = useRef<ScrollView>(null);
 
   const loadQuestions = useCallback(
@@ -130,7 +137,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   }, [loadQuestions, orderState]);
 
   useEffect(() => {
-    void getExplainMode().then(setExplainMode);
+    void getExplainProvider().then(setExplainProvider);
   }, []);
 
   const q = questions[idx];
@@ -195,8 +202,9 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   }, [next]);
 
   /** F7/F9b：AI 讲解——优先用教材依据（RAG），无有效命中时降级为普通讲解 */
-  const runExplain = useCallback(async () => {
-    if (!q) return;
+  const runExplain = useCallback(
+    async (target: { url: string; model: string; apiKey: string }) => {
+      if (!q) return;
     setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false });
     try {
       const input = { stem: q.stem, options: q.options, answerText: q.answerText };
@@ -207,7 +215,13 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         source: `${h.materialName}${h.sourceLoc ? ` · ${h.sourceLoc}` : ''}`,
       }));
       const prompt = evidence.length > 0 ? renderRagPrompt(input, evidence) : renderExplainPrompt(input);
-      const r = await llm.complete(prompt, { model: TEXT_MODEL, temperature: 0.3, maxTokens: 1024, timeoutMs: 60000 });
+      const r = await llm.complete(prompt, {
+        model: target.model,
+        endpoint: { url: target.url, apiKey: target.apiKey },
+        temperature: 0.3,
+        maxTokens: 1024,
+        timeoutMs: 60000,
+      });
       if (!r.ok || !r.content || !r.content.trim()) {
         setExplain({
           loading: false,
@@ -222,7 +236,9 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     } catch (e) {
       setExplain({ loading: false, text: null, error: String((e as Error)?.message ?? e), evidence: [], usedLibrary: false });
     }
-  }, [db, llm, q]);
+    },
+    [db, llm, q],
+  );
 
   const feedbackWrong = useCallback(async () => {
     if (!q) return;
@@ -248,7 +264,16 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   /** 讲解入口：应用内生成 或 分享到豆包等外部应用 */
   const onExplainPress = useCallback(async () => {
     if (!q) return;
-    if (explainMode === 'external') {
+    const target = resolveExplainTarget(explainProvider, {
+      zhipuApiKey: await getApiKey(),
+      deepseekApiKey: await getDeepseekKey(),
+      custom: await getCustomConfig(),
+    });
+    if (target.kind === 'missing_config') {
+      Alert.alert('需要先配置', target.message);
+      return;
+    }
+    if (target.kind === 'share') {
       const text =
         `请讲解这道题：\n${q.stem}\n` +
         (q.options.length > 0 ? q.options.map((o) => `${o.id}. ${o.text}`).join('\n') + '\n' : '') +
@@ -260,8 +285,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       }
       return;
     }
-    await runExplain();
-  }, [q, explainMode, runExplain]);
+    await runExplain({ url: target.url, model: target.model, apiKey: target.apiKey });
+  }, [q, explainProvider, runExplain]);
 
   if (stage === 'loading') {
     return (
@@ -370,7 +395,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             {q.analysis ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
             {explain === null && (
               <Pressable style={styles.explainBtn} onPress={() => void onExplainPress()}>
-                <Text style={styles.explainBtnText}>{explainMode === 'external' ? '发给豆包讲解' : 'AI 讲解'}</Text>
+                <Text style={styles.explainBtnText}>{explainProvider === 'external' ? '发给豆包讲解' : 'AI 讲解'}</Text>
               </Pressable>
             )}
             {explain?.loading && (
@@ -382,7 +407,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             {explain?.error ? (
               <>
                 <Text style={styles.explainError}>讲解生成失败：{explain.error}</Text>
-                <Pressable style={styles.explainBtn} onPress={() => void runExplain()}>
+                <Pressable style={styles.explainBtn} onPress={() => void onExplainPress()}>
                   <Text style={styles.explainBtnText}>重试讲解</Text>
                 </Pressable>
               </>

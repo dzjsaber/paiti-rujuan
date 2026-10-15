@@ -21,6 +21,8 @@ export interface LLMCallOptions {
   timeoutMs?: number;
   maxRetries?: number;
   retryDelayMs?: number;
+  /** 覆盖默认端点与密钥（多提供商支持；缺省用构造器注入的智谱配置） */
+  endpoint?: { url: string; apiKey: string };
 }
 
 export interface LLMCallResult {
@@ -84,7 +86,7 @@ export class LLMService {
   }
 
   async call(opts: LLMCallOptions): Promise<LLMCallResult> {
-    const key = await this.getApiKey();
+    const key = opts.endpoint?.apiKey ?? (await this.getApiKey());
     if (!key) {
       return {
         ok: false,
@@ -118,7 +120,7 @@ export class LLMService {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const resp = await this.fetchImpl(ZHIPU_CHAT_URL, {
+        const resp = await this.fetchImpl(opts.endpoint?.url ?? ZHIPU_CHAT_URL, {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),

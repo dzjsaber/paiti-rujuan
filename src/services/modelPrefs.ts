@@ -54,32 +54,24 @@ export function modelIdForTier(tier: ModelTier): string {
 
 // ---------------------------------------------------------------- 讲解方式（F7）
 
-export type ExplainMode = 'inapp' | 'external';
+import { EXPLAIN_PROVIDERS, type ExplainProviderId } from './llm/providers';
 
 const EXPLAIN_KEY = 'explain_mode';
 
-export const EXPLAIN_MODES: Record<ExplainMode, { label: string; tagline: string; detail: string }> = {
-  inapp: {
-    label: '应用内讲解（默认）',
-    tagline: '智谱免费模型 · 不花钱',
-    detail: '在本应用里生成讲解；已导入教材时会自动引用教材内容并标注依据编号。',
-  },
-  external: {
-    label: '发送到豆包等应用',
-    tagline: '系统分享 · 免费',
-    detail: '把题目文本通过系统分享发送到豆包等 AI 应用里讲解；本应用不调用模型。',
-  },
-};
-
-export async function getExplainMode(): Promise<ExplainMode> {
+/** 读取讲解提供商（兼容旧值：inapp → zhipu_free） */
+export async function getExplainProvider(): Promise<ExplainProviderId> {
   try {
     const v = await SecureStore.getItemAsync(EXPLAIN_KEY);
-    return v === 'external' ? 'external' : 'inapp';
+    if (v === 'inapp') return 'zhipu_free';
+    if (v && (Object.keys(EXPLAIN_PROVIDERS) as string[]).includes(v)) {
+      return v as ExplainProviderId;
+    }
+    return 'zhipu_free';
   } catch {
-    return 'inapp';
+    return 'zhipu_free';
   }
 }
 
-export async function saveExplainMode(mode: ExplainMode): Promise<void> {
-  await SecureStore.setItemAsync(EXPLAIN_KEY, mode);
+export async function saveExplainProvider(id: ExplainProviderId): Promise<void> {
+  await SecureStore.setItemAsync(EXPLAIN_KEY, id);
 }
