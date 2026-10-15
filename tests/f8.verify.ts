@@ -1,6 +1,8 @@
 /** F8 纯逻辑验证：文档分块 + 答案表解析/映射。运行：npx tsx tests/f8.verify.ts */
 import { applyAnswerTable, extractQuestionNo, parseAnswerTable, type MappableDraft } from '../src/services/documents/answerTable';
 import { MATERIAL_BOUNDARY, chunkDocument } from '../src/services/documents/chunker';
+import { pptxBytesToText } from '../src/services/documents/pptx';
+import { strToU8, zipSync } from 'fflate';
 
 let passed = 0;
 const fails: string[] = [];
@@ -64,6 +66,24 @@ check('教材分块（800/100，章节标题边界）', () => {
   }
   const chapterChunk = chunks.find((c) => c.text.trim().startsWith('第二章'));
   assert(!!chapterChunk, '章节标题应作为新段起点被优先切分');
+});
+
+check('PPTX 文本提取（按页序 + 实体解码 + 页标记）', () => {
+  const slide = (title: string, body: string) =>
+    `<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:txBody>` +
+    `<a:p><a:r><a:t>${title}</a:t></a:r></a:p>` +
+    `<a:p><a:r><a:t>${body}</a:t></a:r><a:r><a:t> &amp; 补充</a:t></a:r></a:p>` +
+    `</p:txBody></p:sp></p:spTree></p:cSld></p:sld>`;
+  const bytes = zipSync({
+    'ppt/slides/slide2.xml': strToU8(slide('第二页标题', '内容B')),
+    'ppt/slides/slide1.xml': strToU8(slide('第一页标题', '内容A')),
+    '[Content_Types].xml': strToU8('<x/>'),
+  });
+  const r = pptxBytesToText(bytes);
+  assert(r.pageCount === 2, `页数应为 2，实际 ${r.pageCount}`);
+  assert(r.text.includes('【第 1 页】') && r.text.includes('第一页标题'), '应含第 1 页内容与页标记');
+  assert(r.text.indexOf('第一页标题') < r.text.indexOf('第二页标题'), '应按幻灯片顺序排列');
+  assert(r.text.includes('内容A & 补充'), '应解码 XML 实体并合并同一段落的多个文本节点');
 });
 
 // ---------------------------------------------------------------- 答案表

@@ -132,6 +132,30 @@ async function main(): Promise<void> {
     assert(wb.c === 0 && pl.c === 0, '错题本与做题记录应级联清理');
   });
 
+  await check('V3 迁移：import_batches 重建（数据保留 + pptx 枚举 + 级联仍然有效）', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    for (const m of MIGRATIONS.filter((x) => x.version <= 2)) db.exec(m.sql);
+    db.exec("INSERT INTO import_batches(id,status,source_type,created_at,updated_at) VALUES('b1','completed','photo','2026-01-01','2026-01-01')");
+    db.exec("INSERT INTO import_pages(id,batch_id,status,updated_at) VALUES('p1','b1','completed','2026-01-01')");
+    const v3 = MIGRATIONS.find((x) => x.version === 3);
+    if (!v3) throw new Error('缺少 V3 迁移');
+    db.exec(v3.sql);
+    const b = db.prepare("SELECT source_type FROM import_batches WHERE id='b1'").get() as { source_type: string };
+    if (b.source_type !== 'photo') throw new Error('旧数据应保留');
+    db.exec("INSERT INTO import_batches(id,status,source_type,created_at,updated_at) VALUES('b2','running','pptx','2026-01-01','2026-01-01')");
+    let threw = false;
+    try {
+      db.exec("INSERT INTO import_batches(id,status,source_type,created_at,updated_at) VALUES('b3','running','bogus','2026-01-01','2026-01-01')");
+    } catch {
+      threw = true;
+    }
+    if (!threw) throw new Error('非法 source_type 应被 CHECK 拒绝');
+    db.exec("DELETE FROM import_batches WHERE id='b1'");
+    const p = db.prepare('SELECT COUNT(*) AS c FROM import_pages').get() as { c: number };
+    if (p.c !== 0) throw new Error('删除批次后页面应级联删除');
+  });
+
   const total = passed + fails.length;
   if (fails.length > 0) {
     console.log(`SCHEMA VERIFY FAILED：${passed}/${total} 通过`);

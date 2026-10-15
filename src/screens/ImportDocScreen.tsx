@@ -32,6 +32,7 @@ function sourceTypeFromName(name: string): ImportSourceType {
   const l = name.toLowerCase();
   if (l.endsWith('.pdf')) return 'pdf';
   if (l.endsWith('.docx')) return 'docx';
+  if (l.endsWith('.pptx')) return 'pptx';
   if (l.endsWith('.md')) return 'md';
   return 'txt';
 }
@@ -51,6 +52,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
         type: [
           'application/pdf',
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
           'text/plain',
           'text/markdown',
         ],
@@ -158,7 +160,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           <View style={styles.spacer} />
         </View>
         <View style={styles.center}>
-          <Text style={styles.centerText}>支持 PDF / DOCX / TXT / MD（文字版）</Text>
+          <Text style={styles.centerText}>支持 PDF / DOCX / PPTX / TXT / MD（文字版）</Text>
           <Text style={styles.centerHint}>
             纯文本提取在本地完成；结构化切题需要把文本片段发送给智谱 AI（发送前会再次征求你确认）。{'\n'}
             扫描版（图片型）文件请改用"拍照识别"。

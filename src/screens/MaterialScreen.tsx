@@ -67,6 +67,7 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
         type: [
           'application/pdf',
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
           'text/plain',
           'text/markdown',
         ],
@@ -193,7 +194,7 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {materials.length === 0 && (
-          <Text style={styles.empty}>还没有教材。点右上角"导入"，支持 PDF / DOCX / TXT / MD（文字版）。</Text>
+          <Text style={styles.empty}>还没有教材。点右上角"导入"，支持 PDF / DOCX / PPTX / TXT / MD（文字版）。</Text>
         )}
         {materials.map((m) => (
           <View key={m.id} style={styles.card}>

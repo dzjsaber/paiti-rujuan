@@ -37,6 +37,8 @@ function sourceText(t: string): string {
       return 'PDF';
     case 'docx':
       return 'DOCX';
+    case 'pptx':
+      return 'PPT';
     default:
       return t.toUpperCase();
   }

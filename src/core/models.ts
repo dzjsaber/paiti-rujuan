@@ -85,7 +85,7 @@ export type ImportItemStatus =
   | 'inserted'
   | 'discarded';
 
-export type ImportSourceType = 'photo' | 'gallery' | 'pdf' | 'docx' | 'txt' | 'md';
+export type ImportSourceType = 'photo' | 'gallery' | 'pdf' | 'docx' | 'pptx' | 'txt' | 'md';
 
 export interface ImportBatch {
   id: string;

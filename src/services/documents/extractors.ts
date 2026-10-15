@@ -8,14 +8,11 @@
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as mammothRaw from 'mammoth';
 import * as pdfjsRaw from 'pdfjs-dist';
+import { finalizeExtract, type ExtractResult } from './docCommon';
+import { pptxBytesToText } from './pptx';
 
-export interface ExtractResult {
-  text: string;
-  pageCount: number | null;
-  warnings: string[];
-}
-
-const SCAN_WARN_CHARS = 100;
+export type { ExtractResult } from './docCommon';
+export { pptxBytesToText } from './pptx';
 
 /**
  * 文件读取统一走 expo-file-system 的 legacy API：
@@ -93,20 +90,9 @@ interface PdfDocument {
   getPage: (n: number) => Promise<PdfPage>;
 }
 
-function finalize(text: string, pageCount: number | null, extra: string[] = []): ExtractResult {
-  const clean = text.replace(/\u0000/g, '');
-  const warnings = [...extra];
-  if (clean.trim().length < SCAN_WARN_CHARS) {
-    warnings.push(
-      '提取到的文本极少，可能是扫描版（图片型）文件。本期不支持扫描版 OCR：可以逐页截图后走"拍照识别"，或换一份文字版文件。',
-    );
-  }
-  return { text: clean, pageCount, warnings };
-}
-
 export async function extractTxtLike(uri: string): Promise<ExtractResult> {
   const text = await readTextFile(uri);
-  return finalize(text, null);
+  return finalizeExtract(text, null);
 }
 
 export async function extractDocx(uri: string): Promise<ExtractResult> {
@@ -117,7 +103,7 @@ export async function extractDocx(uri: string): Promise<ExtractResult> {
   if (result.messages?.some((m) => /image/i.test(m.message ?? ''))) {
     warnings.push('文档包含图片内容：本期仅导入文本，内嵌图片不支持识别。');
   }
-  return finalize(result.value ?? '', null, warnings);
+  return finalizeExtract(result.value ?? '', null, warnings);
 }
 
 export async function extractPdf(uri: string): Promise<ExtractResult> {
@@ -143,13 +129,19 @@ export async function extractPdf(uri: string): Promise<ExtractResult> {
       .trim();
     if (line) parts.push(line);
   }
-  return finalize(parts.join('\n\n'), doc.numPages);
+  return finalizeExtract(parts.join('\n\n'), doc.numPages);
+}
+
+export async function extractPptx(uri: string): Promise<ExtractResult> {
+  const bytes = await readBytes(uri);
+  return pptxBytesToText(bytes);
 }
 
 export async function extractDocument(uri: string, name: string): Promise<ExtractResult> {
   const lower = name.toLowerCase();
   if (lower.endsWith('.pdf')) return extractPdf(uri);
   if (lower.endsWith('.docx')) return extractDocx(uri);
+  if (lower.endsWith('.pptx')) return extractPptx(uri);
   if (lower.endsWith('.txt') || lower.endsWith('.md')) return extractTxtLike(uri);
-  throw new Error(`暂不支持的文件类型：${name}（支持 PDF / DOCX / TXT / MD）`);
+  throw new Error(`暂不支持的文件类型：${name}（支持 PDF / DOCX / PPTX / TXT / MD）`);
 }

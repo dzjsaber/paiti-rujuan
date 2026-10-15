@@ -13,13 +13,21 @@ export async function migrate(db: SQLiteDatabase): Promise<number> {
   const current = row ? Number(row.value) : 0;
   const pending = MIGRATIONS.filter((m) => m.version > current).sort((a, b) => a.version - b.version);
   for (const m of pending) {
-    await db.withTransactionAsync(async () => {
+    if (m.noTransaction) {
       await db.execAsync(m.sql);
       await db.runAsync(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         String(m.version),
       );
-    });
+    } else {
+      await db.withTransactionAsync(async () => {
+        await db.execAsync(m.sql);
+        await db.runAsync(
+          "INSERT INTO meta(key, value) VALUES('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+          String(m.version),
+        );
+      });
+    }
   }
   return pending.length ? (pending[pending.length - 1]?.version ?? current) : current;
 }

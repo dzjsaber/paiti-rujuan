@@ -10,6 +10,8 @@ export interface Migration {
   version: number;
   name: string;
   sql: string;
+  /** 需要在事务外执行（如涉及 PRAGMA foreign_keys 的表重建） */
+  noTransaction?: boolean;
 }
 
 const V1_SQL = `
@@ -136,6 +138,30 @@ export const MIGRATIONS: Migration[] = [
     name: '002_question_image',
     // 题目配图：图形类题干/选项无法用文字表达时，用户可从原图裁切保存为本题配图
     sql: 'ALTER TABLE questions ADD COLUMN question_image_path TEXT;',
+  },
+  {
+    version: 3,
+    name: '003_import_source_pptx',
+    // source_type 增加 pptx：SQLite 无法直接修改 CHECK，按官方推荐流程重建表
+    // （新建 → 复制 → 删除 → 改名）；PRAGMA 必须在事务外，故 noTransaction。
+    noTransaction: true,
+    sql: `
+PRAGMA foreign_keys = OFF;
+DROP TABLE IF EXISTS import_batches_new;
+CREATE TABLE import_batches_new (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL CHECK (status IN ('queued','running','paused','completed','completed_with_errors','cancelled')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('photo','gallery','pdf','docx','pptx','txt','md')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  error_summary TEXT
+);
+INSERT INTO import_batches_new(id, status, source_type, created_at, updated_at, error_summary)
+  SELECT id, status, source_type, created_at, updated_at, error_summary FROM import_batches;
+DROP TABLE import_batches;
+ALTER TABLE import_batches_new RENAME TO import_batches;
+PRAGMA foreign_keys = ON;
+`,
   },
 ];
 
