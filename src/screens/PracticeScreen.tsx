@@ -5,8 +5,8 @@
  * - 错题本模式重刷答对 → 自动移出错题本（历史记录保留）；
  * - answer 为 null 的题不自动判定，提示"暂无答案"并允许跳过。
  */
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { DEFAULT_BANK_ID } from '../db/database';
 import { searchMaterialsSmart } from '../db/fts';
@@ -15,6 +15,7 @@ import { setQuestionAnalysis, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
 import { renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
 import { TEXT_MODEL, type LLMService } from '../services/llm/LLMService';
+import { getExplainMode, type ExplainMode } from '../services/modelPrefs';
 
 export interface PracticeScreenProps {
   db: SQLiteDatabase;
@@ -102,6 +103,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     usedLibrary: boolean;
   } | null>(null);
   const [adopted, setAdopted] = useState(false);
+  const [explainMode, setExplainMode] = useState<ExplainMode>('inapp');
+  const scrollRef = useRef<ScrollView>(null);
 
   const loadQuestions = useCallback(
     async (ord: 'seq' | 'random') => {
@@ -126,6 +129,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     void loadQuestions(orderState);
   }, [loadQuestions, orderState]);
 
+  useEffect(() => {
+    void getExplainMode().then(setExplainMode);
+  }, []);
+
   const q = questions[idx];
 
   const next = useCallback(() => {
@@ -148,6 +155,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       setChosen(choice);
       setResult({ correct });
       setStage('judged');
+      // 判定反馈区在选项下方，自动滚动到可见位置（否则小屏看不到讲解入口）
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
       if (correct === null) return;
       try {
         await recordAnswer(db, q.id, correct);
@@ -236,6 +245,24 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     }
   }, [db, q, explain]);
 
+  /** 讲解入口：应用内生成 或 分享到豆包等外部应用 */
+  const onExplainPress = useCallback(async () => {
+    if (!q) return;
+    if (explainMode === 'external') {
+      const text =
+        `请讲解这道题：\n${q.stem}\n` +
+        (q.options.length > 0 ? q.options.map((o) => `${o.id}. ${o.text}`).join('\n') + '\n' : '') +
+        (q.answerText ? `正确答案：${q.answerText}` : '');
+      try {
+        await Share.share({ message: text });
+      } catch (e) {
+        Alert.alert('分享失败', String((e as Error)?.message ?? e));
+      }
+      return;
+    }
+    await runExplain();
+  }, [q, explainMode, runExplain]);
+
   if (stage === 'loading') {
     return (
       <View style={styles.center}>
@@ -304,7 +331,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         </Pressable>
       </View>
 
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+      <ScrollView ref={scrollRef} style={styles.body} contentContainerStyle={styles.bodyContent}>
         <View style={styles.stemCard}>
           <Text style={styles.stemText}>{q.stem}</Text>
         </View>
@@ -342,8 +369,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             )}
             {q.analysis ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
             {explain === null && (
-              <Pressable style={styles.explainBtn} onPress={() => void runExplain()}>
-                <Text style={styles.explainBtnText}>AI 讲解</Text>
+              <Pressable style={styles.explainBtn} onPress={() => void onExplainPress()}>
+                <Text style={styles.explainBtnText}>{explainMode === 'external' ? '发给豆包讲解' : 'AI 讲解'}</Text>
               </Pressable>
             )}
             {explain?.loading && (

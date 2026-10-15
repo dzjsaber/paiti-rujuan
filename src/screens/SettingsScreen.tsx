@@ -2,7 +2,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { clearApiKey, getApiKey, maskKey, saveApiKey } from '../services/apiKey';
-import { getModelTier, MODEL_TIERS, saveModelTier, type ModelTier } from '../services/modelPrefs';
+import {
+  EXPLAIN_MODES,
+  getExplainMode,
+  getModelTier,
+  MODEL_TIERS,
+  saveExplainMode,
+  saveModelTier,
+  type ExplainMode,
+  type ModelTier,
+} from '../services/modelPrefs';
 
 export interface SettingsScreenProps {
   onBack: () => void;
@@ -14,15 +23,22 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
   const [current, setCurrent] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [tier, setTier] = useState<ModelTier>('free');
+  const [explainMode, setExplainMode] = useState<ExplainMode>('inapp');
 
   const refresh = useCallback(async () => {
     setCurrent(await getApiKey());
     setTier(await getModelTier());
+    setExplainMode(await getExplainMode());
   }, []);
 
   const chooseTier = useCallback(async (t: ModelTier) => {
     setTier(t);
     await saveModelTier(t);
+  }, []);
+
+  const chooseExplain = useCallback(async (m: ExplainMode) => {
+    setExplainMode(m);
+    await saveExplainMode(m);
   }, []);
 
   useEffect(() => {
@@ -96,6 +112,25 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         );
       })}
       <Text style={styles.hint}>高级档按量计费（从智谱账户扣费），使用前请确认余额。</Text>
+
+      <Text style={styles.section}>讲解方式</Text>
+      {(Object.keys(EXPLAIN_MODES) as ExplainMode[]).map((m) => {
+        const info = EXPLAIN_MODES[m];
+        const active = explainMode === m;
+        return (
+          <Pressable
+            key={m}
+            style={[styles.tierCard, active && styles.tierCardActive]}
+            onPress={() => void chooseExplain(m)}
+          >
+            <View style={styles.tierHeader}>
+              <Text style={[styles.tierLabel, active && styles.tierLabelActive]}>{info.label}</Text>
+              <Text style={styles.tierTag}>{info.tagline}</Text>
+            </View>
+            <Text style={styles.tierDetail}>{info.detail}</Text>
+          </Pressable>
+        );
+      })}
 
       <Pressable style={styles.btnGhost} onPress={onOpenSelfTest}>
         <Text style={styles.btnGhostText}>运行技术自检（SQLite / 图片压缩）</Text>

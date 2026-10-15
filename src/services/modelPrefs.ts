@@ -51,3 +51,35 @@ export async function saveModelTier(tier: ModelTier): Promise<void> {
 export function modelIdForTier(tier: ModelTier): string {
   return MODEL_TIERS[tier].id;
 }
+
+// ---------------------------------------------------------------- 讲解方式（F7）
+
+export type ExplainMode = 'inapp' | 'external';
+
+const EXPLAIN_KEY = 'explain_mode';
+
+export const EXPLAIN_MODES: Record<ExplainMode, { label: string; tagline: string; detail: string }> = {
+  inapp: {
+    label: '应用内讲解（默认）',
+    tagline: '智谱免费模型 · 不花钱',
+    detail: '在本应用里生成讲解；已导入教材时会自动引用教材内容并标注依据编号。',
+  },
+  external: {
+    label: '发送到豆包等应用',
+    tagline: '系统分享 · 免费',
+    detail: '把题目文本通过系统分享发送到豆包等 AI 应用里讲解；本应用不调用模型。',
+  },
+};
+
+export async function getExplainMode(): Promise<ExplainMode> {
+  try {
+    const v = await SecureStore.getItemAsync(EXPLAIN_KEY);
+    return v === 'external' ? 'external' : 'inapp';
+  } catch {
+    return 'inapp';
+  }
+}
+
+export async function saveExplainMode(mode: ExplainMode): Promise<void> {
+  await SecureStore.setItemAsync(EXPLAIN_KEY, mode);
+}

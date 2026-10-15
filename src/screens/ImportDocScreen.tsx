@@ -7,6 +7,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { buildDraftsWithF2 } from '../core/draftBuild';
 import type { ImportSourceType } from '../core/models';
@@ -227,6 +228,17 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
             {extract.text}
           </Text>
         </ScrollView>
+        <Pressable
+          style={styles.primaryBtnWide}
+          onPress={() => {
+            void (async () => {
+              await Clipboard.setStringAsync(extract.text);
+              Alert.alert('已复制', '全文已复制到剪贴板，可粘贴到任意位置整理。');
+            })();
+          }}
+        >
+          <Text style={styles.primaryBtnText}>复制全文</Text>
+        </Pressable>
       </View>
     );
   }
