@@ -54,6 +54,8 @@ interface ReviewItem {
   issues: string[];
   selected: boolean;
   answerText: string;
+  /** 草稿生命周期状态：pending=可编辑待处理；inserted/discarded=只读历史 */
+  state: 'pending' | 'inserted' | 'discarded';
 }
 
 export interface ReviewScreenProps {
@@ -199,6 +201,7 @@ export function ReviewScreen({
           issues: f2[i].issues.map((x) => x.message),
           selected: f2[i].status !== 'invalid',
           answerText: answerToText(d.answer),
+          state: 'pending' as const,
         }));
       setItems((prev) => (merge ? [...prev, ...newItems] : newItems));
       setStats(progressLabel);
@@ -325,18 +328,19 @@ export function ReviewScreen({
       try {
         const rows = await getItemsByBatch(db, batchId);
         const pages = await getPagesByBatch(db, batchId);
-        const restored: ReviewItem[] = rows
-          .filter((r) => r.status === 'draft' || r.status === 'needs_review' || r.status === 'approved_for_insert')
-          .map((r) => {
+        const restored: ReviewItem[] = rows.map((r) => {
             const d = rowToDraft(r);
             const status = (d.review_status ?? 'needs_review') as ReviewStatus;
+            const state =
+              r.status === 'inserted' ? ('inserted' as const) : r.status === 'discarded' ? ('discarded' as const) : ('pending' as const);
             return {
               itemId: r.id,
               draft: d,
               status,
               issues: d.review_reasons ?? [],
-              selected: status !== 'invalid',
+              selected: state === 'pending' && status !== 'invalid',
               answerText: answerToText(d.answer),
+              state,
             };
           });
         batchRef.current = batchId;
@@ -345,12 +349,12 @@ export function ReviewScreen({
           setImageUri(pages[0].image_path);
         }
         if (restored.length === 0) {
-          setError('该批次没有待处理的草稿（可能已全部入库或丢弃）。');
+          setError('该批次没有任何题目草稿。');
           setPhase('error');
           return;
         }
         setItems(restored);
-        setStats('从上次中断处恢复');
+        setStats('历史导入记录');
         setPhase('reviewing');
       } catch (e) {
         setError('恢复草稿失败：' + String((e as Error)?.message ?? e));
@@ -453,7 +457,7 @@ export function ReviewScreen({
   }, [db]);
 
   const toggleAll = useCallback((selected: boolean) => {
-    setItems((prev) => prev.map((x) => (x.status === 'invalid' ? x : { ...x, selected })));
+    setItems((prev) => prev.map((x) => (x.state !== 'pending' || x.status === 'invalid' ? x : { ...x, selected })));
   }, []);
 
   /** 编辑失焦时落库（§3.3：每次编辑及时写入 import_items，不依赖内存状态） */
@@ -556,6 +560,7 @@ export function ReviewScreen({
   const review = items.filter((x) => x.status === 'needs_review').length;
   const invalid = items.filter((x) => x.status === 'invalid').length;
   const selectedCount = items.filter((x) => x.selected).length;
+  const insertedCount = items.filter((x) => x.state === 'inserted').length;
 
   return (
     <View style={styles.page}>
@@ -570,7 +575,8 @@ export function ReviewScreen({
       </View>
       <View style={styles.summaryRow}>
         <Text style={styles.summary}>
-          共 {items.length} 题 · 可入库 {passed} · 需复核 {review} · 无效 {invalid} · 已选 {selectedCount}
+          共 {items.length} 题{insertedCount > 0 ? ` · 已入库 ${insertedCount}` : ''} · 可入库 {passed} · 需复核 {review} ·
+          无效 {invalid} · 已选 {selectedCount}
         </Text>
         {invalid > 0 && (
           <Pressable onPress={jumpToNextInvalid} style={styles.jumpBtn} hitSlop={6}>
@@ -582,6 +588,20 @@ export function ReviewScreen({
 
       <ScrollView ref={scrollRef} style={styles.list} contentContainerStyle={styles.listContent}>
         {items.map((it, idx) => (
+          it.state !== 'pending' ? (
+            <View key={it.itemId} style={[styles.card, styles.cardLocked]}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.badge, { backgroundColor: it.state === 'inserted' ? '#0a7d33' : '#8a94a6' }]}>
+                  <Text style={styles.badgeText}>{it.state === 'inserted' ? '已入库' : '已丢弃'}</Text>
+                </View>
+                <Text style={styles.cardIndex}>第 {idx + 1} 题</Text>
+                <Text style={styles.typeText}>{typeLabel(it.draft.type)}</Text>
+              </View>
+              <Text style={styles.readonlyStem} numberOfLines={3}>
+                {it.draft.stem}
+              </Text>
+            </View>
+          ) : (
           <View
             key={it.itemId}
             onLayout={(e) => {
@@ -636,6 +656,7 @@ export function ReviewScreen({
             </View>
             {it.issues.length > 0 && <Text style={styles.issues}>{it.issues.join('\n')}</Text>}
           </View>
+          )
         ))}
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -717,6 +738,8 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 10 },
   cardUnselected: { opacity: 0.55 },
+  cardLocked: { backgroundColor: '#f2f4f8', opacity: 0.9 },
+  readonlyStem: { marginTop: 8, fontSize: 13, color: '#66707f', lineHeight: 19 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: '#9aa7bd', alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { backgroundColor: '#1c5cd6', borderColor: '#1c5cd6' },

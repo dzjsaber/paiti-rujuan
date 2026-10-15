@@ -10,6 +10,7 @@ import { openAppDatabase } from './src/db/database';
 import { getApiKey } from './src/services/apiKey';
 import { LLMService } from './src/services/llm/LLMService';
 import { HomeScreen, type ReviewParams } from './src/screens/HomeScreen';
+import { HistoryScreen } from './src/screens/HistoryScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { SelfTestScreen } from './src/screens/SelfTestScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -18,6 +19,7 @@ type Screen =
   | { name: 'home' }
   | { name: 'review'; mode: 'new'; params: ReviewParams }
   | { name: 'review'; mode: 'resume'; batchId: string }
+  | { name: 'history' }
   | { name: 'settings' }
   | { name: 'selftest' };
 
@@ -79,6 +81,7 @@ export default function App() {
           onOpenReview={(p) => setScreen({ name: 'review', mode: 'new', params: p })}
           onOpenSettings={() => setScreen({ name: 'settings' })}
           onResume={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
+          onOpenHistory={() => setScreen({ name: 'history' })}
         />
       )}
       {screen.name === 'review' && screen.mode === 'new' && (
@@ -94,6 +97,13 @@ export default function App() {
       )}
       {screen.name === 'review' && screen.mode === 'resume' && (
         <ReviewScreen db={db} llm={llm} resumeBatchId={screen.batchId} onDone={goHome} />
+      )}
+      {screen.name === 'history' && (
+        <HistoryScreen
+          db={db}
+          onBack={goHome}
+          onOpenBatch={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
+        />
       )}
       {screen.name === 'settings' && (
         <SettingsScreen onBack={goHome} onOpenSelfTest={() => setScreen({ name: 'selftest' })} />

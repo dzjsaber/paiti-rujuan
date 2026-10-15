@@ -20,9 +20,11 @@ export interface HomeScreenProps {
   onOpenSettings: () => void;
   /** 恢复未完成的导入批次（应用被杀/中断后） */
   onResume: (batchId: string) => void;
+  /** 导入历史（每次识别一条记录） */
+  onOpenHistory: () => void;
 }
 
-export function HomeScreen({ db, onOpenReview, onOpenSettings, onResume }: HomeScreenProps) {
+export function HomeScreen({ db, onOpenReview, onOpenSettings, onResume, onOpenHistory }: HomeScreenProps) {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<ImportBatchRow[]>([]);
@@ -182,6 +184,11 @@ export function HomeScreen({ db, onOpenReview, onOpenSettings, onResume }: HomeS
         </View>
       )}
 
+      <Pressable style={styles.historyBtn} onPress={onOpenHistory}>
+        <Text style={styles.historyBtnText}>导入历史</Text>
+        <Text style={styles.historyBtnHint}>查看每次识别的记录，编辑、合并或删除</Text>
+      </Pressable>
+
       <Text style={styles.footer}>图片在本地压缩后直传智谱识别接口，不经第三方图床。</Text>
     </View>
   );
@@ -213,5 +220,8 @@ const styles = StyleSheet.create({
   pendingText: { fontSize: 13, color: '#6d5a22' },
   pendingDeleteBtn: { paddingVertical: 8, paddingHorizontal: 10 },
   pendingRemove: { fontSize: 13, color: '#c0392b' },
+  historyBtn: { marginTop: 14, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea' },
+  historyBtnText: { color: '#31518a', fontSize: 15, fontWeight: '700' },
+  historyBtnHint: { color: '#98a2b3', fontSize: 11, marginTop: 3 },
   footer: { marginTop: 'auto', marginBottom: 24, fontSize: 11, color: '#9aa2b1', lineHeight: 16 },
 });

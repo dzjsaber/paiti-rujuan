@@ -174,6 +174,34 @@ export async function deleteBatch(db: SQLiteDatabase, batchId: string): Promise<
   await db.runAsync('DELETE FROM import_batches WHERE id = ?', batchId);
 }
 
+/** 导入历史条目（含草稿统计），按时间倒序 */
+export interface BatchSummary {
+  id: string;
+  created_at: string;
+  status: ImportBatchStatus;
+  source_type: ImportSourceType;
+  total: number;
+  inserted: number;
+  pending: number;
+  discarded: number;
+}
+
+export async function listBatchesWithStats(db: SQLiteDatabase, limit = 100): Promise<BatchSummary[]> {
+  return db.getAllAsync<BatchSummary>(
+    `SELECT b.id, b.created_at, b.status, b.source_type,
+            COUNT(i.id) AS total,
+            SUM(CASE WHEN i.status = 'inserted' THEN 1 ELSE 0 END) AS inserted,
+            SUM(CASE WHEN i.status IN ('draft','needs_review','approved_for_insert') THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN i.status = 'discarded' THEN 1 ELSE 0 END) AS discarded
+       FROM import_batches b
+       LEFT JOIN import_items i ON i.batch_id = b.id
+      GROUP BY b.id
+      ORDER BY b.created_at DESC
+      LIMIT ?`,
+    limit,
+  );
+}
+
 export async function getUnfinishedBatches(db: SQLiteDatabase): Promise<ImportBatchRow[]> {
   return db.getAllAsync<ImportBatchRow>(
     "SELECT * FROM import_batches WHERE status IN ('queued','running','paused') ORDER BY created_at DESC",
