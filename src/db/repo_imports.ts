@@ -169,6 +169,11 @@ export async function deleteDraftItemsByPage(db: SQLiteDatabase, pageId: string)
   );
 }
 
+/** 删除整个批次（级联清理页面与草稿；已入库的题目不受影响） */
+export async function deleteBatch(db: SQLiteDatabase, batchId: string): Promise<void> {
+  await db.runAsync('DELETE FROM import_batches WHERE id = ?', batchId);
+}
+
 export async function getUnfinishedBatches(db: SQLiteDatabase): Promise<ImportBatchRow[]> {
   return db.getAllAsync<ImportBatchRow>(
     "SELECT * FROM import_batches WHERE status IN ('queued','running','paused') ORDER BY created_at DESC",

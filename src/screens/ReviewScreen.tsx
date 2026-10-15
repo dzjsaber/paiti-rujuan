@@ -20,6 +20,7 @@ import {
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { CropModal } from '../components/CropModal';
 import type { QuestionAnswer, QuestionDraft, ReviewStatus } from '../core/models';
+import { normalizeStem } from '../core/dedupe';
 import { f2ValidatePage, f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer, normalizeOptions } from '../core/validation/normalize';
 import { DEFAULT_BANK_ID } from '../db/database';
@@ -120,6 +121,9 @@ export function ReviewScreen({
   const pageRef = useRef<string | null>(null);
   const preparedRef = useRef<PreparedImage | null>(null);
   const startedRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const yMapRef = useRef<Record<string, number>>({});
+  const jumpRef = useRef(0);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -141,9 +145,26 @@ export function ReviewScreen({
   );
 
   const applyDrafts = useCallback(
-    async (drafts: unknown[], progressLabel: string) => {
-      const f2 = f2ValidatePage(drafts);
-      const questionDrafts: QuestionDraft[] = drafts.map((d, i) => {
+    async (drafts: unknown[], progressLabel: string, merge = false) => {
+      // 补识别场景（merge）：过滤掉与当前列表题干重复的新草稿，只追加新题
+      let incoming = drafts;
+      if (merge) {
+        const existing = new Set(itemsRef.current.map((x) => normalizeStem(x.draft.stem)));
+        incoming = drafts.filter((d) => {
+          const stem =
+            d && typeof d === 'object' && typeof (d as Record<string, unknown>).stem === 'string'
+              ? String((d as Record<string, unknown>).stem)
+              : '';
+          return !existing.has(normalizeStem(stem));
+        });
+        if (incoming.length === 0) {
+          setStats(progressLabel + ' · 未发现新题目');
+          setPhase('reviewing');
+          return;
+        }
+      }
+      const f2 = f2ValidatePage(incoming);
+      const questionDrafts: QuestionDraft[] = incoming.map((d, i) => {
         const base = (d && typeof d === 'object' && !Array.isArray(d) ? d : {}) as Record<string, unknown>;
         const r = f2[i];
         const rawOptions = Array.isArray(base.options) ? base.options : [];
@@ -164,23 +185,22 @@ export function ReviewScreen({
           review_status: r.status,
         } as QuestionDraft;
       });
-      if (pageRef.current) {
+      if (!merge && pageRef.current) {
         await deleteDraftItemsByPage(db, pageRef.current);
       }
       const ids = await saveDraftItems(db, batchRef.current ?? '', pageRef.current ?? '', questionDrafts, 'draft', null);
       if (pageRef.current) {
         await updatePageStatus(db, pageRef.current, 'needs_review');
       }
-      setItems(
-        questionDrafts.map((d, i) => ({
+      const newItems = questionDrafts.map((d, i) => ({
           itemId: ids[i],
           draft: d,
           status: f2[i].status,
           issues: f2[i].issues.map((x) => x.message),
           selected: f2[i].status !== 'invalid',
           answerText: answerToText(d.answer),
-        })),
-      );
+        }));
+      setItems((prev) => (merge ? [...prev, ...newItems] : newItems));
       setStats(progressLabel);
       setPhase('reviewing');
     },
@@ -188,7 +208,7 @@ export function ReviewScreen({
   );
 
   const runRecognition = useCallback(
-    async (opts?: { crop?: CropRect }) => {
+    async (opts?: { crop?: CropRect; forceHalves?: boolean; merge?: boolean }) => {
       setPhase('recognizing');
       setError(null);
       setProgressText(opts?.crop ? '正在裁切选区…' : '正在压缩图片…');
@@ -232,7 +252,7 @@ export function ReviewScreen({
             setPhase('error');
             return;
           }
-          await applyDrafts(outcome.drafts, label);
+          await applyDrafts(outcome.drafts, label, opts?.merge);
         };
 
         // 模式 1：用户手动框选 → 只识别选区
@@ -248,15 +268,22 @@ export function ReviewScreen({
           return;
         }
 
-        // 模式 2：整页识别，失败/空则自动切半兜底
-        setProgressText('正在识别（大模型推理中，约 10-60 秒）…');
-        const whole = await recognizeOnce(engine, prep.base64);
-        if (whole.ok && whole.drafts.length > 0) {
-          await finish(whole, `整页识别 · 耗时 ${(whole.latencyMs / 1000).toFixed(1)}s · 解析 ${whole.mode}`);
-          return;
+        // 模式 2：整页识别，失败/空则自动切半兜底（也可由用户手动触发切半补识别）
+        let firstIssue = '用户手动触发切半';
+        let wholeLatency = 0;
+        if (!opts?.forceHalves) {
+          setProgressText('正在识别（大模型推理中，约 10-60 秒）…');
+          const whole = await recognizeOnce(engine, prep.base64);
+          if (whole.ok && whole.drafts.length > 0) {
+            await finish(whole, `整页识别 · 耗时 ${(whole.latencyMs / 1000).toFixed(1)}s · 解析 ${whole.mode}`);
+            return;
+          }
+          firstIssue = whole.ok ? '整页未提取到题目' : whole.message;
+          if (whole.ok) wholeLatency = whole.latencyMs;
+          setProgressText('整页识别未成功，正在尝试上下半页…');
+        } else {
+          setProgressText('正在识别上下半页…');
         }
-        const firstIssue = whole.ok ? '整页未提取到题目' : whole.message;
-        setProgressText('整页识别未成功，正在尝试上下半页…');
         const halves = await makeHalves(prep);
         const merged: unknown[] = [];
         let mergedLatency = 0;
@@ -272,8 +299,8 @@ export function ReviewScreen({
         }
         if (merged.length > 0) {
           await finish(
-            { ok: true, drafts: merged, mode: 'halves', latencyMs: whole.ok ? whole.latencyMs + mergedLatency : mergedLatency, attempts: 2 },
-            `上下半页合并 · 耗时 ${((mergedLatency + (whole.ok ? whole.latencyMs : 0)) / 1000).toFixed(1)}s（整页：${firstIssue}）`,
+            { ok: true, drafts: merged, mode: 'halves', latencyMs: wholeLatency + mergedLatency, attempts: 2 },
+            `上下半页合并 · 耗时 ${((mergedLatency + wholeLatency) / 1000).toFixed(1)}s（${firstIssue}）`,
           );
           return;
         }
@@ -429,6 +456,31 @@ export function ReviewScreen({
     setItems((prev) => prev.map((x) => (x.status === 'invalid' ? x : { ...x, selected })));
   }, []);
 
+  /** 编辑失焦时落库（§3.3：每次编辑及时写入 import_items，不依赖内存状态） */
+  const saveItemDraft = useCallback(
+    async (id: string) => {
+      const it = itemsRef.current.find((x) => x.itemId === id);
+      if (!it) return;
+      try {
+        await updateItemDraft(db, id, it.draft);
+      } catch {
+        /* 落库失败不阻塞界面 */
+      }
+    },
+    [db],
+  );
+
+  const jumpToNextInvalid = useCallback(() => {
+    const invalids = itemsRef.current.filter((x) => x.status === 'invalid');
+    if (invalids.length === 0) return;
+    const target = invalids[jumpRef.current % invalids.length];
+    jumpRef.current += 1;
+    const y = yMapRef.current[target.itemId];
+    if (y !== undefined) {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+    }
+  }, []);
+
   // ---------------------------------------------------------------- 渲染
   if (phase === 'recognizing') {
     return (
@@ -516,14 +568,27 @@ export function ReviewScreen({
           <Text style={styles.back}>看原图</Text>
         </Pressable>
       </View>
-      <Text style={styles.summary}>
-        共 {items.length} 题 · 可入库 {passed} · 需复核 {review} · 无效 {invalid} · 已选 {selectedCount}
-        {stats ? `　（${stats}）` : ''}
-      </Text>
+      <View style={styles.summaryRow}>
+        <Text style={styles.summary}>
+          共 {items.length} 题 · 可入库 {passed} · 需复核 {review} · 无效 {invalid} · 已选 {selectedCount}
+        </Text>
+        {invalid > 0 && (
+          <Pressable onPress={jumpToNextInvalid} style={styles.jumpBtn} hitSlop={6}>
+            <Text style={styles.jumpBtnText}>跳到无效题</Text>
+          </Pressable>
+        )}
+      </View>
+      {stats ? <Text style={styles.summarySub}>{stats}</Text> : null}
 
-      <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+      <ScrollView ref={scrollRef} style={styles.list} contentContainerStyle={styles.listContent}>
         {items.map((it, idx) => (
-          <View key={it.itemId} style={[styles.card, !it.selected && styles.cardUnselected]}>
+          <View
+            key={it.itemId}
+            onLayout={(e) => {
+              yMapRef.current[it.itemId] = e.nativeEvent.layout.y;
+            }}
+            style={[styles.card, !it.selected && styles.cardUnselected]}
+          >
             <View style={styles.cardHeader}>
               <Pressable
                 onPress={() => patchItem(it.itemId, { selected: !it.selected })}
@@ -543,6 +608,7 @@ export function ReviewScreen({
               value={it.draft.stem}
               multiline
               onChangeText={(t) => patchItem(it.itemId, { draft: { ...it.draft, stem: t } })}
+              onBlur={() => void saveItemDraft(it.itemId)}
             />
             {it.draft.options.map((o, oi) => (
               <View key={`${o.id}-${oi}`} style={styles.optRow}>
@@ -551,6 +617,7 @@ export function ReviewScreen({
                   style={styles.optInput}
                   value={o.text}
                   onChangeText={(t) => patchOptionText(it.itemId, oi, t)}
+                  onBlur={() => void saveItemDraft(it.itemId)}
                 />
               </View>
             ))}
@@ -561,6 +628,7 @@ export function ReviewScreen({
                 value={it.answerText}
                 placeholder="空 / 对 / 错 / A / A,C"
                 onChangeText={(t) => patchItem(it.itemId, { answerText: t })}
+                onBlur={() => void saveItemDraft(it.itemId)}
               />
               <Pressable style={styles.revalidateBtn} onPress={() => void revalidate(it.itemId)}>
                 <Text style={styles.revalidateText}>重新校验</Text>
@@ -572,17 +640,37 @@ export function ReviewScreen({
         <View style={{ height: 24 }} />
       </ScrollView>
 
-      <View style={styles.footerBar}>
-        <Pressable style={styles.smallGhost} onPress={() => toggleAll(true)}>
-          <Text style={styles.smallGhostText}>全选</Text>
-        </Pressable>
-        <Pressable style={styles.smallGhost} onPress={() => toggleAll(false)}>
-          <Text style={styles.smallGhostText}>全不选</Text>
-        </Pressable>
+      <View style={styles.footerBarWrap}>
+        <View style={styles.footerTools}>
+          <Pressable style={styles.smallGhost} onPress={() => toggleAll(true)}>
+            <Text style={styles.smallGhostText}>全选</Text>
+          </Pressable>
+          <Pressable style={styles.smallGhost} onPress={() => toggleAll(false)}>
+            <Text style={styles.smallGhostText}>全不选</Text>
+          </Pressable>
+          <Pressable style={styles.smallGhost} onPress={() => setShowCrop(true)}>
+            <Text style={styles.smallGhostText}>框选补识别</Text>
+          </Pressable>
+          <Pressable style={styles.smallGhost} onPress={() => void runRecognition({ forceHalves: true, merge: true })}>
+            <Text style={styles.smallGhostText}>切半补识别</Text>
+          </Pressable>
+        </View>
         <Pressable style={styles.primaryBtnSmall} onPress={() => void insertSelected()}>
           <Text style={styles.primaryBtnText}>入库所选（{selectedCount}）</Text>
         </Pressable>
       </View>
+
+      <CropModalHost
+        visible={showCrop}
+        imageUri={imageUri}
+        imageWidth={imageDims.w}
+        imageHeight={imageDims.h}
+        onCancel={() => setShowCrop(false)}
+        onConfirm={(rect) => {
+          setShowCrop(false);
+          void runRecognition({ crop: rect, merge: true });
+        }}
+      />
 
       <Modal visible={showImage} transparent onRequestClose={() => setShowImage(false)}>
         <View style={styles.modalBg}>
@@ -620,7 +708,11 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   back: { fontSize: 15, color: '#1c5cd6' },
   title: { fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
-  summary: { paddingHorizontal: 16, marginTop: 8, fontSize: 12, color: '#66707f' },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 8, gap: 8 },
+  summary: { flex: 1, fontSize: 12, color: '#66707f' },
+  summarySub: { paddingHorizontal: 16, marginTop: 4, fontSize: 11, color: '#98a2b3' },
+  jumpBtn: { backgroundColor: '#fdecea', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  jumpBtnText: { color: '#c02a2a', fontSize: 12, fontWeight: '700' },
   list: { flex: 1, marginTop: 8 },
   listContent: { paddingHorizontal: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 10 },
@@ -643,7 +735,8 @@ const styles = StyleSheet.create({
   revalidateBtn: { backgroundColor: '#e8f0ff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
   revalidateText: { color: '#1c5cd6', fontSize: 12, fontWeight: '700' },
   issues: { marginTop: 10, fontSize: 12, color: '#b8860b', lineHeight: 18 },
-  footerBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingBottom: 24, paddingTop: 8, backgroundColor: '#f7f8fa' },
+  footerBarWrap: { paddingHorizontal: 16, paddingBottom: 24, paddingTop: 8, backgroundColor: '#f7f8fa', gap: 10 },
+  footerTools: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   smallGhost: { borderRadius: 10, borderWidth: 1, borderColor: '#cfd9ea', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#fff' },
   smallGhostText: { color: '#31518a', fontSize: 13 },
   primaryBtn: { marginTop: 24, backgroundColor: '#1c5cd6', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40 },
