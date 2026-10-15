@@ -53,6 +53,8 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           'application/pdf',
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'application/vnd.ms-powerpoint',
+          'application/msword',
           'text/plain',
           'text/markdown',
         ],

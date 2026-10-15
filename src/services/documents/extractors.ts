@@ -143,5 +143,11 @@ export async function extractDocument(uri: string, name: string): Promise<Extrac
   if (lower.endsWith('.docx')) return extractDocx(uri);
   if (lower.endsWith('.pptx')) return extractPptx(uri);
   if (lower.endsWith('.txt') || lower.endsWith('.md')) return extractTxtLike(uri);
+  if (lower.endsWith('.ppt')) {
+    throw new Error('老版 .ppt 格式（Office 97-2003 二进制格式）无法本地解析。请用 PowerPoint / WPS 打开后"另存为 .pptx"再导入。');
+  }
+  if (lower.endsWith('.doc')) {
+    throw new Error('老版 .doc 格式无法本地解析。请用 Word / WPS 打开后"另存为 .docx"再导入。');
+  }
   throw new Error(`暂不支持的文件类型：${name}（支持 PDF / DOCX / PPTX / TXT / MD）`);
 }
