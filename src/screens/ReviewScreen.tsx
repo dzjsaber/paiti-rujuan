@@ -685,8 +685,8 @@ export function ReviewScreen({
             <Text style={styles.smallGhostText}>切半补识别</Text>
           </Pressable>
         </View>
-        <Pressable style={styles.primaryBtnSmall} onPress={() => void insertSelected()}>
-          <Text style={styles.primaryBtnText}>入库所选（{selectedCount}）</Text>
+        <Pressable style={styles.insertBtn} onPress={() => void insertSelected()}>
+          <Text style={styles.insertBtnText}>入库所选（{selectedCount}）</Text>
         </Pressable>
       </View>
 
@@ -769,6 +769,15 @@ const styles = StyleSheet.create({
   issues: { marginTop: 10, fontSize: 12, color: '#b8860b', lineHeight: 18 },
   footerBarWrap: { paddingHorizontal: 16, paddingBottom: 24, paddingTop: 8, backgroundColor: '#f7f8fa', gap: 10 },
   footerTools: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  insertBtn: {
+    backgroundColor: '#1c5cd6',
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  insertBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   smallGhost: { borderRadius: 10, borderWidth: 1, borderColor: '#cfd9ea', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#fff' },
   smallGhostText: { color: '#31518a', fontSize: 13 },
   primaryBtn: { marginTop: 24, backgroundColor: '#1c5cd6', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40 },
