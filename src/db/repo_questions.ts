@@ -21,6 +21,7 @@ export interface QuestionRow {
   source_image_path: string | null;
   source_page: number | null;
   source_hash: string | null;
+  question_image_path: string | null;
   source_engine: string;
   status: string;
   review_status: string;
@@ -36,8 +37,8 @@ export interface QuestionRowParams {
 const INSERT_SQL = `INSERT INTO questions(
   id, bank_id, type, stem, options_json, answer_json, analysis, tags_json, confidence,
   review_reasons_json, visual_features_json, source_image_path, source_page, source_hash,
-  source_engine, status, review_status, created_at, updated_at
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  question_image_path, source_engine, status, review_status, created_at, updated_at
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
 /** 纯映射：草稿 → INSERT 参数（离线可测） */
 export function draftToRowParams(
@@ -63,6 +64,7 @@ export function draftToRowParams(
       draft.source_image_path ?? null,
       draft.source_page ?? null,
       draft.source_hash ?? null,
+      draft.question_image_path ?? null,
       draft.source_engine,
       draft.status,
       draft.review_status ?? 'needs_review',
@@ -89,6 +91,7 @@ export function rowToQuestion(row: QuestionRow): QuestionDraft & { id: string; b
     source_image_path: row.source_image_path,
     source_page: row.source_page,
     source_hash: row.source_hash,
+    question_image_path: row.question_image_path,
     source_engine: row.source_engine as 'zhipu' | 'doc',
     status: row.status as QuestionStatus,
     review_status: row.review_status as ReviewStatus,
@@ -130,4 +133,28 @@ export async function deleteQuestion(db: SQLiteDatabase, id: string): Promise<vo
 export async function countQuestions(db: SQLiteDatabase, bankId: string): Promise<number> {
   const row = await db.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM questions WHERE bank_id = ?', bankId);
   return row?.c ?? 0;
+}
+
+/** 编辑已入库题目（题干/选项/答案/校验状态），并同步 FTS 索引 */
+export async function updateQuestionContent(
+  db: SQLiteDatabase,
+  id: string,
+  draft: QuestionDraft,
+): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE questions SET stem = ?, options_json = ?, answer_json = ?, review_status = ?,
+        review_reasons_json = ?, question_image_path = ?, updated_at = ? WHERE id = ?`,
+      draft.stem,
+      JSON.stringify(draft.options ?? []),
+      JSON.stringify(draft.answer ?? null),
+      draft.review_status ?? 'needs_review',
+      JSON.stringify(draft.review_reasons ?? []),
+      draft.question_image_path ?? null,
+      new Date().toISOString(),
+      id,
+    );
+    await db.runAsync('DELETE FROM questions_fts WHERE ref_id = ?', id);
+    await db.runAsync('INSERT INTO questions_fts(stem, ref_id) VALUES(?, ?)', draft.stem, id);
+  });
 }

@@ -27,6 +27,8 @@ export interface HomeScreenProps {
   onOpenPractice: () => void;
   /** 错题本 */
   onOpenWrongBook: () => void;
+  /** 题库管理（补答案、编辑、删除） */
+  onOpenBank: () => void;
 }
 
 export function HomeScreen({
@@ -37,6 +39,7 @@ export function HomeScreen({
   onOpenHistory,
   onOpenPractice,
   onOpenWrongBook,
+  onOpenBank,
 }: HomeScreenProps) {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -212,10 +215,14 @@ export function HomeScreen({
         </View>
       )}
 
-      <Pressable style={styles.historyBtn} onPress={onOpenHistory}>
-        <Text style={styles.historyBtnText}>导入历史</Text>
-        <Text style={styles.historyBtnHint}>查看每次识别的记录，编辑、合并或删除</Text>
-      </Pressable>
+      <View style={styles.rowBtns}>
+        <Pressable style={styles.rowBtn} onPress={onOpenHistory}>
+          <Text style={styles.rowBtnText}>导入历史</Text>
+        </Pressable>
+        <Pressable style={styles.rowBtn} onPress={onOpenBank}>
+          <Text style={styles.rowBtnText}>题库管理</Text>
+        </Pressable>
+      </View>
 
       <Text style={styles.footer}>图片在本地压缩后直传智谱识别接口，不经第三方图床。</Text>
     </View>

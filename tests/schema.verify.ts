@@ -33,9 +33,27 @@ async function main(): Promise<void> {
     freshDb();
   });
 
-  await check('迁移幂等（重复执行无错）', () => {
-    const db = freshDb();
-    for (const m of MIGRATIONS) db.exec(m.sql);
+  await check('迁移幂等（版本机制下重复运行无错）', () => {
+    // 模拟真实迁移逻辑（database.ts）：按 schema_version 只执行未应用的迁移
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    const runMigrations = () => {
+      const row = db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as
+        | { value: string }
+        | undefined;
+      const current = row ? Number(row.value) : 0;
+      for (const m of MIGRATIONS.filter((x) => x.version > current).sort((a, b) => a.version - b.version)) {
+        db.exec(m.sql);
+        db.prepare(
+          "INSERT INTO meta(key,value) VALUES('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ).run(String(m.version));
+      }
+    };
+    runMigrations();
+    runMigrations(); // 第二次应全部跳过（ALTER TABLE 不得重复执行）
+    const v = db.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string };
+    const latest = String(MIGRATIONS[MIGRATIONS.length - 1].version);
+    if (v.value !== latest) throw new Error(`schema_version 应为 ${latest}，实际 ${v.value}`);
   });
 
   await check('FTS5 trigram：3 字命中 / 2 字无命中（与真机一致）', () => {

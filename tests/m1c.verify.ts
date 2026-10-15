@@ -67,6 +67,7 @@ async function main(): Promise<void> {
       source_image_path: DRAFT.source_image_path ?? null,
       source_page: 1,
       source_hash: 'H1',
+      question_image_path: null,
       source_engine: 'zhipu',
       status: 'pending',
       review_status: 'needs_review',

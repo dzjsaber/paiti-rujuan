@@ -131,6 +131,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS materials_fts USING fts5(content, ref_id UNIN
 
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: '001_init', sql: V1_SQL },
+  {
+    version: 2,
+    name: '002_question_image',
+    // 题目配图：图形类题干/选项无法用文字表达时，用户可从原图裁切保存为本题配图
+    sql: 'ALTER TABLE questions ADD COLUMN question_image_path TEXT;',
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

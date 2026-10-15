@@ -50,6 +50,8 @@ export interface QuestionDraft {
   source_image_path?: string | null;
   source_page?: number | null;
   source_hash?: string | null;
+  /** 题目配图（从原图裁切的图形区域，可空） */
+  question_image_path?: string | null;
   source_engine: 'zhipu' | 'doc';
   status: QuestionStatus;
   /** 由 F2 写入 */

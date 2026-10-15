@@ -11,6 +11,7 @@ import { getApiKey } from './src/services/apiKey';
 import { LLMService } from './src/services/llm/LLMService';
 import { HomeScreen, type ReviewParams } from './src/screens/HomeScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
+import { BankScreen } from './src/screens/BankScreen';
 import { PracticeScreen } from './src/screens/PracticeScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { SelfTestScreen } from './src/screens/SelfTestScreen';
@@ -22,6 +23,7 @@ type Screen =
   | { name: 'review'; mode: 'new'; params: ReviewParams }
   | { name: 'review'; mode: 'resume'; batchId: string }
   | { name: 'history' }
+  | { name: 'bank' }
   | { name: 'practice'; mode: 'bank' | 'wrong'; order: 'seq' | 'random' }
   | { name: 'wrongbook' }
   | { name: 'settings' }
@@ -86,6 +88,7 @@ export default function App() {
           onOpenSettings={() => setScreen({ name: 'settings' })}
           onResume={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
           onOpenHistory={() => setScreen({ name: 'history' })}
+          onOpenBank={() => setScreen({ name: 'bank' })}
           onOpenPractice={() => setScreen({ name: 'practice', mode: 'bank', order: 'seq' })}
           onOpenWrongBook={() => setScreen({ name: 'wrongbook' })}
         />
@@ -111,6 +114,7 @@ export default function App() {
           onOpenBatch={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
         />
       )}
+      {screen.name === 'bank' && <BankScreen db={db} onBack={goHome} />}
       {screen.name === 'practice' && (
         <PracticeScreen db={db} mode={screen.mode} order={screen.order} onDone={goHome} />
       )}

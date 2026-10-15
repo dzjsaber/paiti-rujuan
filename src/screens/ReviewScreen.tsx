@@ -117,6 +117,9 @@ export function ReviewScreen({
   const [insertResult, setInsertResult] = useState<{ ok: number; dup: number; skipped: number; failed: string[] } | null>(null);
   const [showImage, setShowImage] = useState(false);
   const [showCrop, setShowCrop] = useState(false);
+  const [cropPurpose, setCropPurpose] = useState<'recognize' | 'figure'>('recognize');
+  const [figureTargetId, setFigureTargetId] = useState<string | null>(null);
+  const [showFigureUri, setShowFigureUri] = useState<string | null>(null);
 
   const itemsRef = useRef<ReviewItem[]>([]);
   const batchRef = useRef<string | null>(null);
@@ -491,6 +494,40 @@ export function ReviewScreen({
     }
   }, []);
 
+  /** 为某道题截取配图（图形类题干/选项无法用文字表达时使用） */
+  const attachFigure = useCallback(
+    async (itemId: string, rect: CropRect) => {
+      const prep = preparedRef.current;
+      if (!prep) return;
+      try {
+        const cropped = await cropImage(prep.uri, rect);
+        const it = itemsRef.current.find((x) => x.itemId === itemId);
+        if (!it) return;
+        const updated: QuestionDraft = { ...it.draft, question_image_path: cropped.uri };
+        setItems((prev) => prev.map((x) => (x.itemId === itemId ? { ...x, draft: updated } : x)));
+        await updateItemDraft(db, itemId, updated);
+      } catch (e) {
+        Alert.alert('配图失败', String((e as Error)?.message ?? e));
+      }
+    },
+    [db],
+  );
+
+  const removeFigure = useCallback(
+    async (itemId: string) => {
+      const it = itemsRef.current.find((x) => x.itemId === itemId);
+      if (!it) return;
+      const updated: QuestionDraft = { ...it.draft, question_image_path: null };
+      setItems((prev) => prev.map((x) => (x.itemId === itemId ? { ...x, draft: updated } : x)));
+      try {
+        await updateItemDraft(db, itemId, updated);
+      } catch {
+        /* ignore */
+      }
+    },
+    [db],
+  );
+
   // ---------------------------------------------------------------- 渲染
   if (phase === 'recognizing') {
     return (
@@ -663,6 +700,40 @@ export function ReviewScreen({
                 <Text style={styles.revalidateText}>重新校验</Text>
               </Pressable>
             </View>
+            <View style={styles.figureRow}>
+              <Text style={styles.answerLabel}>配图</Text>
+              {it.draft.question_image_path ? (
+                <>
+                  <Pressable onPress={() => setShowFigureUri(it.draft.question_image_path ?? null)}>
+                    <Image source={{ uri: it.draft.question_image_path }} style={styles.figureThumb} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.smallGhostTiny}
+                    onPress={() => {
+                      setFigureTargetId(it.itemId);
+                      setCropPurpose('figure');
+                      setShowCrop(true);
+                    }}
+                  >
+                    <Text style={styles.revalidateText}>重截</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallGhostTiny} onPress={() => void removeFigure(it.itemId)}>
+                    <Text style={styles.revalidateText}>移除</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  style={styles.smallGhostTiny}
+                  onPress={() => {
+                    setFigureTargetId(it.itemId);
+                    setCropPurpose('figure');
+                    setShowCrop(true);
+                  }}
+                >
+                  <Text style={styles.revalidateText}>截取配图（图形题用）</Text>
+                </Pressable>
+              )}
+            </View>
             {it.issues.length > 0 && <Text style={styles.issues}>{it.issues.join('\n')}</Text>}
           </View>
           )
@@ -678,7 +749,13 @@ export function ReviewScreen({
           <Pressable style={styles.smallGhost} onPress={() => toggleAll(false)}>
             <Text style={styles.smallGhostText}>全不选</Text>
           </Pressable>
-          <Pressable style={styles.smallGhost} onPress={() => setShowCrop(true)}>
+          <Pressable
+            style={styles.smallGhost}
+            onPress={() => {
+              setCropPurpose('recognize');
+              setShowCrop(true);
+            }}
+          >
             <Text style={styles.smallGhostText}>框选补识别</Text>
           </Pressable>
           <Pressable style={styles.smallGhost} onPress={() => void runRecognition({ forceHalves: true, merge: true })}>
@@ -698,9 +775,22 @@ export function ReviewScreen({
         onCancel={() => setShowCrop(false)}
         onConfirm={(rect) => {
           setShowCrop(false);
-          void runRecognition({ crop: rect, merge: true });
+          if (cropPurpose === 'figure' && figureTargetId) {
+            void attachFigure(figureTargetId, rect);
+          } else {
+            void runRecognition({ crop: rect, merge: true });
+          }
         }}
       />
+
+      <Modal visible={!!showFigureUri} transparent onRequestClose={() => setShowFigureUri(null)}>
+        <View style={styles.modalBg}>
+          {showFigureUri ? <Image source={{ uri: showFigureUri }} style={styles.modalImage} resizeMode="contain" /> : null}
+          <Pressable style={styles.modalClose} onPress={() => setShowFigureUri(null)}>
+            <Text style={styles.modalCloseText}>关闭</Text>
+          </Pressable>
+        </View>
+      </Modal>
 
       <Modal visible={showImage} transparent onRequestClose={() => setShowImage(false)}>
         <View style={styles.modalBg}>
@@ -764,6 +854,9 @@ const styles = StyleSheet.create({
   answerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 },
   answerLabel: { fontSize: 13, color: '#66707f' },
   answerInput: { flex: 1, fontSize: 14, color: '#222', backgroundColor: '#f2f5fa', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  figureRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
+  figureThumb: { width: 64, height: 64, borderRadius: 8, backgroundColor: '#eef1f6', borderWidth: 1, borderColor: '#dbe1ec' },
+  smallGhostTiny: { borderRadius: 8, borderWidth: 1, borderColor: '#cfd9ea', paddingHorizontal: 10, paddingVertical: 7, backgroundColor: '#fff' },
   revalidateBtn: { backgroundColor: '#e8f0ff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
   revalidateText: { color: '#1c5cd6', fontSize: 12, fontWeight: '700' },
   issues: { marginTop: 10, fontSize: 12, color: '#b8860b', lineHeight: 18 },

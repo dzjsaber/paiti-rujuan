@@ -30,6 +30,7 @@ interface ParsedQuestion {
   answerText: string;
   analysis: string | null;
   sourceImage: string | null;
+  questionImage: string | null;
 }
 
 function parseRow(row: QuestionRow): ParsedQuestion {
@@ -49,6 +50,7 @@ function parseRow(row: QuestionRow): ParsedQuestion {
     answerText,
     analysis: row.analysis,
     sourceImage: row.source_image_path,
+    questionImage: row.question_image_path,
   };
 }
 
@@ -85,6 +87,7 @@ export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps)
   const [result, setResult] = useState<{ correct: boolean | null } | null>(null);
   const [session, setSession] = useState({ right: 0, wrong: 0, skipped: 0 });
   const [showImage, setShowImage] = useState(false);
+  const [showFigure, setShowFigure] = useState(false);
   const [orderState, setOrderState] = useState<'seq' | 'random'>(order);
 
   const loadQuestions = useCallback(
@@ -240,6 +243,12 @@ export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps)
           <Text style={styles.stemText}>{q.stem}</Text>
         </View>
 
+        {q.questionImage ? (
+          <Pressable onPress={() => setShowFigure(true)}>
+            <Image source={{ uri: q.questionImage }} style={styles.questionFigure} resizeMode="contain" />
+          </Pressable>
+        ) : null}
+
         {opts.map((o) => {
           const picked = chosen.includes(o.id);
           const correctOpt = judged && isOptionCorrect(q, o.id);
@@ -305,6 +314,17 @@ export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps)
           </Pressable>
         </View>
       </Modal>
+
+      <Modal visible={showFigure} transparent onRequestClose={() => setShowFigure(false)}>
+        <View style={styles.modalBg}>
+          {q.questionImage ? (
+            <Image source={{ uri: q.questionImage }} style={styles.modalImage} resizeMode="contain" />
+          ) : null}
+          <Pressable style={styles.modalClose} onPress={() => setShowFigure(false)}>
+            <Text style={styles.modalCloseText}>关闭</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -324,6 +344,7 @@ const styles = StyleSheet.create({
   bodyContent: { paddingHorizontal: 16, paddingBottom: 20 },
   stemCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 14 },
   stemText: { fontSize: 16, color: '#222', lineHeight: 24 },
+  questionFigure: { width: '100%', height: 180, borderRadius: 12, backgroundColor: '#fff', marginBottom: 14 },
   optBtn: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1.5, borderColor: '#dbe1ec', paddingVertical: 13, paddingHorizontal: 14, marginBottom: 10 },
   optPicked: { borderColor: '#1c5cd6', backgroundColor: '#f3f7ff' },
   optCorrect: { borderColor: '#0a7d33', backgroundColor: '#eaf7ef' },
