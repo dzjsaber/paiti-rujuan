@@ -8,8 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { DEFAULT_BANK_ID } from '../db/database';
 import { searchMaterialsSmart } from '../db/fts';
+import { listBanks, type BankSummary } from '../db/repo_banks';
 import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
 import { setQuestionAnalysis, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
@@ -32,7 +32,7 @@ export interface PracticeScreenProps {
   onDone: () => void;
 }
 
-type Stage = 'loading' | 'answering' | 'judged' | 'finished' | 'empty';
+type Stage = 'pickBank' | 'loading' | 'answering' | 'judged' | 'finished' | 'empty';
 
 interface ParsedQuestion {
   id: string;
@@ -93,7 +93,8 @@ function evaluate(q: ParsedQuestion, chosen: string[]): boolean | null {
 }
 
 export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenProps) {
-  const [stage, setStage] = useState<Stage>('loading');
+  // 题库模式先选题库（F4 多库）：进入刷题前停留在选择页
+  const [stage, setStage] = useState<Stage>(mode === 'bank' ? 'pickBank' : 'loading');
   const [questions, setQuestions] = useState<ParsedQuestion[]>([]);
   const [idx, setIdx] = useState(0);
   const [chosen, setChosen] = useState<string[]>([]);
@@ -111,13 +112,16 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   } | null>(null);
   const [adopted, setAdopted] = useState(false);
   const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
+  const [bankId, setBankId] = useState<string | null>(null);
+  const [bankName, setBankName] = useState<string | null>(null);
+  const [banks, setBanks] = useState<BankSummary[]>([]);
   const scrollRef = useRef<ScrollView>(null);
 
   const loadQuestions = useCallback(
     async (ord: 'seq' | 'random') => {
       setStage('loading');
       try {
-        const rows = await listPracticeQuestions(db, DEFAULT_BANK_ID, mode);
+        const rows = await listPracticeQuestions(db, mode, bankId ?? undefined);
         let qs = rows.map(parseRow);
         if (ord === 'random') qs = shuffleInPlace(qs);
         setQuestions(qs);
@@ -129,12 +133,19 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         setStage('empty');
       }
     },
-    [db, mode],
+    [db, mode, bankId],
   );
 
   useEffect(() => {
+    if (mode === 'bank' && !bankId) {
+      setStage('pickBank');
+      void listBanks(db)
+        .then(setBanks)
+        .catch(() => setBanks([]));
+      return;
+    }
     void loadQuestions(orderState);
-  }, [loadQuestions, orderState]);
+  }, [loadQuestions, orderState, mode, bankId, db]);
 
   useEffect(() => {
     void getExplainProvider().then(setExplainProvider);
@@ -288,6 +299,39 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     await runExplain({ url: target.url, model: target.model, apiKey: target.apiKey });
   }, [q, explainProvider, runExplain]);
 
+  if (stage === 'pickBank') {
+    return (
+      <View style={styles.page}>
+        <View style={styles.header}>
+          <Pressable onPress={onDone} hitSlop={8}>
+            <Text style={styles.back}>← 退出</Text>
+          </Pressable>
+          <Text style={styles.title}>选择题库</Text>
+          <View style={styles.spacer} />
+        </View>
+        <ScrollView style={styles.pickList} contentContainerStyle={styles.pickListContent}>
+          <Text style={styles.pickHint}>选择要在哪个题库刷题</Text>
+          {banks.length === 0 && <Text style={styles.emptyText}>还没有题库。</Text>}
+          {banks.map((b) => (
+            <Pressable
+              key={b.id}
+              style={styles.bankCard}
+              onPress={() => {
+                setBankId(b.id);
+                setBankName(b.name);
+              }}
+            >
+              <Text style={styles.bankCardName} numberOfLines={1}>
+                {b.name}
+              </Text>
+              <Text style={styles.bankCardCount}>{b.count} 题</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  }
+
   if (stage === 'loading') {
     return (
       <View style={styles.center}>
@@ -300,7 +344,11 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     return (
       <View style={styles.center}>
         <Text style={styles.emptyText}>
-          {mode === 'wrong' ? '错题本是空的。刷题时答错的题目会自动进来。' : '题库还没有题目，先去首页识别导入一些吧。'}
+          {mode === 'wrong'
+            ? '错题本是空的。刷题时答错的题目会自动进来。'
+            : bankName
+              ? `「${bankName}」还没有题目，先去首页识别导入，或返回换一个题库。`
+              : '题库还没有题目，先去首页识别导入一些吧。'}
         </Text>
         <Pressable style={styles.primaryBtn} onPress={onDone}>
           <Text style={styles.primaryBtnText}>返回首页</Text>
@@ -348,7 +396,9 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         <Pressable onPress={onDone} hitSlop={8}>
           <Text style={styles.back}>← 退出</Text>
         </Pressable>
-        <Text style={styles.title}>{mode === 'wrong' ? '错题重刷' : '刷题'}</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {mode === 'wrong' ? '错题重刷' : bankName ?? '刷题'}
+        </Text>
         <Pressable onPress={() => setOrderState((o) => (o === 'seq' ? 'random' : 'seq'))} hitSlop={6}>
           <Text style={styles.counter}>
             {idx + 1}/{questions.length} · {orderState === 'random' ? '随机 ⇄' : '顺序 ⇄'}
@@ -510,8 +560,23 @@ const styles = StyleSheet.create({
   centerHint: { marginTop: 8, fontSize: 13, color: '#66707f' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   back: { fontSize: 15, color: '#1c5cd6' },
-  title: { fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
+  title: { flexShrink: 1, marginHorizontal: 8, fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
   counter: { fontSize: 13, color: '#66707f' },
+  spacer: { width: 52 },
+  pickList: { flex: 1, marginTop: 12 },
+  pickListContent: { paddingHorizontal: 16, paddingBottom: 30 },
+  pickHint: { fontSize: 13, color: '#66707f', marginBottom: 10 },
+  bankCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bankCardName: { flex: 1, fontSize: 16, fontWeight: '700', color: '#222' },
+  bankCardCount: { marginLeft: 10, fontSize: 13, color: '#66707f' },
   body: { flex: 1, marginTop: 12 },
   bodyContent: { paddingHorizontal: 16, paddingBottom: 20 },
   stemCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 14 },

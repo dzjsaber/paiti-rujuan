@@ -1,8 +1,7 @@
-/** F5 错题本：答错自动收录；支持顺序/随机重刷；重刷答对自动移出（历史保留）。 */
+/** F5 错题本：全局跨库（条目标注来源库）；答错自动收录；重刷答对自动移出。 */
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { DEFAULT_BANK_ID } from '../db/database';
 import { listWrongBook, type WrongBookEntry } from '../db/repo_practice';
 
 export interface WrongBookScreenProps {
@@ -16,7 +15,7 @@ export function WrongBookScreen({ db, onBack, onPractice }: WrongBookScreenProps
 
   const refresh = useCallback(async () => {
     try {
-      setEntries(await listWrongBook(db, DEFAULT_BANK_ID));
+      setEntries(await listWrongBook(db));
     } catch {
       setEntries([]);
     }
@@ -46,7 +45,7 @@ export function WrongBookScreen({ db, onBack, onPractice }: WrongBookScreenProps
               {e.stem}
             </Text>
             <Text style={styles.meta}>
-              错 {e.wrong_count} 次
+              【{e.bank_name}】错 {e.wrong_count} 次
               {e.last_wrong_at ? ` · 上次 ${e.last_wrong_at.slice(5, 16).replace('T', ' ')}` : ''}
             </Text>
           </View>

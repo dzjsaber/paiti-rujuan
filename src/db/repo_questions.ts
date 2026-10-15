@@ -135,6 +135,12 @@ export async function countQuestions(db: SQLiteDatabase, bankId: string): Promis
   return row?.c ?? 0;
 }
 
+/** 全部题库的题目总数（首页统计用） */
+export async function countAllQuestions(db: SQLiteDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM questions');
+  return row?.c ?? 0;
+}
+
 /** 采纳 AI 讲解为解析（F7：仅用户主动采纳时写入） */
 export async function setQuestionAnalysis(db: SQLiteDatabase, id: string, analysis: string): Promise<void> {
   await db.runAsync('UPDATE questions SET analysis = ?, updated_at = ? WHERE id = ?', analysis, new Date().toISOString(), id);

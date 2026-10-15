@@ -3,9 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { DEFAULT_BANK_ID } from '../db/database';
 import { countWrongBook } from '../db/repo_practice';
-import { countQuestions } from '../db/repo_questions';
+import { countAllQuestions } from '../db/repo_questions';
 
 export interface ReviewParams {
   imagePath: string;
@@ -49,12 +48,12 @@ export function HomeScreen({
 
   const refresh = useCallback(async () => {
     try {
-      setCount(await countQuestions(db, DEFAULT_BANK_ID));
+      setCount(await countAllQuestions(db));
     } catch {
       setCount(null);
     }
     try {
-      setWrongCount(await countWrongBook(db, DEFAULT_BANK_ID));
+      setWrongCount(await countWrongBook(db));
     } catch {
       setWrongCount(0);
     }
@@ -118,7 +117,7 @@ export function HomeScreen({
 
       <View style={styles.statCard}>
         <Text style={styles.statNumber}>{count === null ? '—' : count}</Text>
-        <Text style={styles.statLabel}>题库题目数（默认题库）</Text>
+        <Text style={styles.statLabel}>题目总数（全部题库）</Text>
       </View>
 
       <Pressable style={[styles.bigBtn, busy && styles.bigBtnDisabled]} onPress={() => void takePhoto()} disabled={busy}>

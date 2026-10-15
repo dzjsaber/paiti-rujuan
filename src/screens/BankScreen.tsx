@@ -1,6 +1,6 @@
 /**
- * 题库管理：浏览已入库题目、补答案/编辑题干选项、删除。
- * 主要用途：给"导入时没印答案"的题目补充答案（§F4：没有答案的题目提示补充）。
+ * 题库管理（多库）：先列出题库（名称 + 题目数），点进库里管理题目——
+ * 浏览、补答案/编辑题干选项、删除（§F4：没有答案的题目提示补充）。
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -8,7 +8,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { QuestionDraft } from '../core/models';
 import { f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer } from '../core/validation/normalize';
-import { DEFAULT_BANK_ID } from '../db/database';
+import { listBanks, type BankSummary } from '../db/repo_banks';
 import {
   deleteQuestion,
   listQuestions,
@@ -44,23 +44,49 @@ function typeShort(t: string): string {
 }
 
 export function BankScreen({ db, onBack }: BankScreenProps) {
+  const [banks, setBanks] = useState<BankSummary[]>([]);
+  const [selected, setSelected] = useState<BankSummary | null>(null);
   const [rows, setRows] = useState<QuestionRow[]>([]);
   const [filter, setFilter] = useState<'all' | 'noanswer'>('all');
   const [editing, setEditing] = useState<{ id: string; draft: QuestionDraft } | null>(null);
   const [answerText, setAnswerText] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refreshBanks = useCallback(async () => {
     try {
-      setRows(await listQuestions(db, DEFAULT_BANK_ID, 500, 0));
+      setBanks(await listBanks(db));
+    } catch {
+      setBanks([]);
+    }
+  }, [db]);
+
+  const refresh = useCallback(async () => {
+    if (!selected) return;
+    try {
+      setRows(await listQuestions(db, selected.id, 500, 0));
     } catch {
       setRows([]);
     }
-  }, [db]);
+  }, [db, selected]);
+
+  useEffect(() => {
+    void refreshBanks();
+  }, [refreshBanks]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const openBank = useCallback((b: BankSummary) => {
+    setFilter('all');
+    setRows([]);
+    setSelected(b);
+  }, []);
+
+  const backToBankList = useCallback(() => {
+    setSelected(null);
+    void refreshBanks();
+  }, [refreshBanks]);
 
   const openEdit = useCallback((row: QuestionRow) => {
     const d = rowToQuestion(row);
@@ -110,6 +136,36 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
     },
     [db, refresh],
   );
+
+  // ---------------------------------------------------------------- 库列表视图
+  if (!selected) {
+    return (
+      <View style={styles.page}>
+        <View style={styles.header}>
+          <Pressable onPress={onBack} hitSlop={8}>
+            <Text style={styles.back}>← 返回</Text>
+          </Pressable>
+          <Text style={styles.title}>题库管理</Text>
+          <Text style={styles.count}>{banks.length} 个库</Text>
+        </View>
+        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+          {banks.length === 0 && <Text style={styles.empty}>还没有题库。</Text>}
+          {banks.map((b) => (
+            <Pressable key={b.id} style={styles.bankCard} onPress={() => openBank(b)}>
+              <Text style={styles.bankName} numberOfLines={1}>
+                {b.name}
+              </Text>
+              <Text style={styles.bankCount}>{b.count} 题</Text>
+            </Pressable>
+          ))}
+          {banks.length > 0 && (
+            <Text style={styles.listHint}>点进题库可编辑题目、补充答案、删除题目。</Text>
+          )}
+          <View style={{ height: 24 }} />
+        </ScrollView>
+      </View>
+    );
+  }
 
   // ---------------------------------------------------------------- 编辑视图
   if (editing) {
@@ -170,10 +226,12 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
   return (
     <View style={styles.page}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} hitSlop={8}>
+        <Pressable onPress={backToBankList} hitSlop={8}>
           <Text style={styles.back}>← 返回</Text>
         </Pressable>
-        <Text style={styles.title}>题库管理</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {selected.name}
+        </Text>
         <Text style={styles.count}>{rows.length} 题</Text>
       </View>
 
@@ -215,9 +273,21 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#f7f8fa', paddingTop: 64 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   back: { fontSize: 15, color: '#1c5cd6' },
-  title: { fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
+  title: { flexShrink: 1, marginHorizontal: 8, fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
   count: { fontSize: 13, color: '#66707f' },
   spacer: { width: 52 },
+  listHint: { marginTop: 10, textAlign: 'center', color: '#98a2b3', fontSize: 12 },
+  bankCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bankName: { flex: 1, fontSize: 16, fontWeight: '700', color: '#222' },
+  bankCount: { marginLeft: 10, fontSize: 13, color: '#66707f' },
   filterRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginTop: 12 },
   chip: { borderRadius: 18, borderWidth: 1, borderColor: '#cfd9ea', paddingHorizontal: 14, paddingVertical: 7, backgroundColor: '#fff' },
   chipOn: { backgroundColor: '#1c5cd6', borderColor: '#1c5cd6' },

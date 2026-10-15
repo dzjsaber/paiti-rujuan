@@ -10,8 +10,14 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { QuestionRow } from './repo_questions';
 import { indexQuestion } from './fts';
 
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 export const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
+
+export interface BackupBankRow {
+  id: string;
+  name: string;
+  created_at: string;
+}
 
 export interface BackupWrongBookRow {
   question_id: string;
@@ -31,6 +37,8 @@ export interface BackupFile {
   exportedAt: string;
   counts: { questions: number; wrongBook: number; practiceLog: number; settings: number };
   data: {
+    /** v2 起包含题库（名字随备份走，避免恢复后只剩 id） */
+    banks: BackupBankRow[];
     questions: QuestionRow[];
     wrongBook: BackupWrongBookRow[];
     practiceLog: BackupPracticeLogRow[];
@@ -39,6 +47,7 @@ export interface BackupFile {
 }
 
 export async function buildBackup(db: SQLiteDatabase): Promise<BackupFile> {
+  const banks = await db.getAllAsync<BackupBankRow>('SELECT id, name, created_at FROM banks ORDER BY created_at, id');
   const questions = await db.getAllAsync<QuestionRow>('SELECT * FROM questions ORDER BY created_at, id');
   const wrongBook = await db.getAllAsync<BackupWrongBookRow>('SELECT * FROM wrong_book');
   const practiceLog = await db.getAllAsync<BackupPracticeLogRow>('SELECT * FROM practice_log');
@@ -53,7 +62,7 @@ export async function buildBackup(db: SQLiteDatabase): Promise<BackupFile> {
       practiceLog: practiceLog.length,
       settings: settings.length,
     },
-    data: { questions, wrongBook, practiceLog, settings },
+    data: { banks, questions, wrongBook, practiceLog, settings },
   };
 }
 
@@ -87,6 +96,8 @@ export function validateBackup(text: string): BackupValidation {
     }
   }
   if (!Array.isArray(d.settings)) d.settings = [];
+  // v1 备份没有 banks：恢复时按题目引用的 bank_id 兜底建库
+  if (!Array.isArray(d.banks)) d.banks = [];
   return {
     ok: true,
     backup: {
@@ -150,8 +161,33 @@ export async function restoreBackup(db: SQLiteDatabase, backup: BackupFile): Pro
     settingsApplied: 0,
   };
   await db.withTransactionAsync(async () => {
+    const knownBankIds = new Set<string>();
+    for (const b of backup.data.banks ?? []) {
+      try {
+        if (!b || typeof b.id !== 'string') continue;
+        await db.runAsync(
+          'INSERT OR IGNORE INTO banks(id, name, created_at) VALUES(?,?,?)',
+          b.id,
+          typeof b.name === 'string' && b.name.trim() ? b.name : '恢复题库',
+          typeof b.created_at === 'string' ? b.created_at : new Date().toISOString(),
+        );
+        knownBankIds.add(b.id);
+      } catch {
+        /* 单条异常跳过 */
+      }
+    }
     for (const q of backup.data.questions) {
       try {
+        // v1 备份或缺 banks 的备份：题目引用的库不存在时兜底建库（否则外键失败丢题）
+        if (q.bank_id && !knownBankIds.has(q.bank_id)) {
+          await db.runAsync(
+            'INSERT OR IGNORE INTO banks(id, name, created_at) VALUES(?,?,?)',
+            q.bank_id,
+            q.bank_id === 'bank_default' ? '默认题库' : '恢复题库',
+            new Date().toISOString(),
+          );
+          knownBankIds.add(q.bank_id);
+        }
         const params = questionRowToParams(q);
         const res = await db.runAsync(RESTORE_INSERT_SQL, ...params);
         if (res.changes > 0) {

@@ -45,7 +45,13 @@ function makeBackup(overrides: Record<string, unknown> = {}): string {
     version: BACKUP_VERSION,
     exportedAt: '2026-10-16T00:00:00.000Z',
     counts: { questions: 1, wrongBook: 0, practiceLog: 0, settings: 0 },
-    data: { questions: [QUESTION], wrongBook: [], practiceLog: [], settings: [] },
+    data: {
+      banks: [{ id: 'bank_default', name: '默认题库', created_at: '2026-01-01' }],
+      questions: [QUESTION],
+      wrongBook: [],
+      practiceLog: [],
+      settings: [],
+    },
     ...overrides,
   });
 }
@@ -86,6 +92,21 @@ check('counts 缺失时自动补齐', () => {
   const v = validateBackup(makeBackup({ counts: undefined }));
   assert(v.ok, '应通过');
   if (v.ok) assert(v.backup.counts.questions === 1, '计数应自动计算');
+});
+
+check('v2 备份解析出题库名字', () => {
+  const v = validateBackup(makeBackup());
+  assert(v.ok, '应通过');
+  if (v.ok) assert(v.backup.data.banks[0]?.name === '默认题库', 'banks 应解析');
+});
+
+check('v1 旧备份（无 banks 字段）兼容通过并补空数组', () => {
+  const raw = JSON.parse(makeBackup()) as { version: number; data: Record<string, unknown> };
+  raw.version = 1;
+  delete raw.data.banks;
+  const v = validateBackup(JSON.stringify(raw));
+  assert(v.ok, 'v1 备份应通过（向后兼容）');
+  if (v.ok) assert(Array.isArray(v.backup.data.banks) && v.backup.data.banks.length === 0, 'banks 应补为空数组');
 });
 
 check('超大文本 → 拒绝', () => {

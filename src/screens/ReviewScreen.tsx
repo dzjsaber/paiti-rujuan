@@ -25,6 +25,7 @@ import { f2ValidatePage, f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer, normalizeOptions } from '../core/validation/normalize';
 import { DEFAULT_BANK_ID } from '../db/database';
 import { indexQuestion } from '../db/fts';
+import { createBank, listBanks, type BankSummary } from '../db/repo_banks';
 import {
   createBatch,
   createPage,
@@ -120,6 +121,10 @@ export function ReviewScreen({
   const [cropPurpose, setCropPurpose] = useState<'recognize' | 'figure'>('recognize');
   const [figureTargetId, setFigureTargetId] = useState<string | null>(null);
   const [showFigureUri, setShowFigureUri] = useState<string | null>(null);
+  const [banks, setBanks] = useState<BankSummary[]>([]);
+  const [targetBankId, setTargetBankId] = useState<string | null>(null);
+  const [showBankPicker, setShowBankPicker] = useState(false);
+  const [newBankName, setNewBankName] = useState('');
 
   const itemsRef = useRef<ReviewItem[]>([]);
   const batchRef = useRef<string | null>(null);
@@ -133,6 +138,21 @@ export function ReviewScreen({
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  /** 入库目标题库：默认选中第一个库（默认题库创建最早，自然排第一） */
+  const loadBanks = useCallback(async () => {
+    try {
+      const list = await listBanks(db);
+      setBanks(list);
+      setTargetBankId((prev) => (prev && list.some((b) => b.id === prev) ? prev : list[0]?.id ?? DEFAULT_BANK_ID));
+    } catch {
+      setTargetBankId((prev) => prev ?? DEFAULT_BANK_ID);
+    }
+  }, [db]);
+
+  useEffect(() => {
+    void loadBanks();
+  }, [loadBanks]);
 
   const recognizeOnce = useCallback(
     async (engine: ZhipuVisionEngine, b64: string): Promise<RecognizeOutcome> => {
@@ -423,6 +443,7 @@ export function ReviewScreen({
       Alert.alert('请先勾选要入库的题目');
       return;
     }
+    const bankId = targetBankId ?? DEFAULT_BANK_ID;
     setPhase('inserting');
     let ok = 0;
     let dup = 0;
@@ -438,7 +459,7 @@ export function ReviewScreen({
         // 防重复入库：库中已存在相同题干（非停用）则跳过
         const existing = await db.getFirstAsync<{ id: string }>(
           "SELECT id FROM questions WHERE bank_id = ? AND stem = ? AND status != 'disabled' LIMIT 1",
-          DEFAULT_BANK_ID,
+          bankId,
           it.draft.stem,
         );
         if (existing) {
@@ -447,7 +468,7 @@ export function ReviewScreen({
           continue;
         }
         await db.withTransactionAsync(async () => {
-          const qid = await insertQuestion(db, DEFAULT_BANK_ID, { ...it.draft, review_status: it.status });
+          const qid = await insertQuestion(db, bankId, { ...it.draft, review_status: it.status });
           await indexQuestion(db, qid, it.draft.stem);
           await setItemStatus(db, it.itemId, 'inserted');
         });
@@ -463,7 +484,33 @@ export function ReviewScreen({
     }
     setInsertResult({ ok, dup, skipped, failed });
     setPhase('done');
-  }, [db]);
+  }, [db, targetBankId]);
+
+  const targetBankName = banks.find((b) => b.id === targetBankId)?.name ?? '默认题库';
+
+  /** 打开选择器时刷新列表（可能刚在题库管理里新建过库） */
+  const openBankPicker = useCallback(async () => {
+    await loadBanks();
+    setNewBankName('');
+    setShowBankPicker(true);
+  }, [loadBanks]);
+
+  const createBankAndSelect = useCallback(async () => {
+    const name = newBankName.trim();
+    if (!name) {
+      Alert.alert('请输入题库名称');
+      return;
+    }
+    try {
+      const id = await createBank(db, name);
+      await loadBanks();
+      setTargetBankId(id);
+      setNewBankName('');
+      setShowBankPicker(false);
+    } catch (e) {
+      Alert.alert('创建题库失败', String((e as Error)?.message ?? e));
+    }
+  }, [db, loadBanks, newBankName]);
 
   const toggleAll = useCallback((selected: boolean) => {
     setItems((prev) => prev.map((x) => (x.state !== 'pending' || x.status === 'invalid' ? x : { ...x, selected })));
@@ -586,8 +633,11 @@ export function ReviewScreen({
       <View style={styles.center}>
         <Text style={styles.doneTitle}>入库完成</Text>
         <Text style={styles.centerText}>成功 {insertResult?.ok ?? 0} 题</Text>
+        {(insertResult?.ok ?? 0) > 0 && (
+          <Text style={styles.centerHint}>已入库到「{targetBankName}」</Text>
+        )}
         {(insertResult?.dup ?? 0) > 0 && (
-          <Text style={styles.centerHint}>跳过 {insertResult?.dup} 题（题库中已存在相同题干）</Text>
+          <Text style={styles.centerHint}>跳过 {insertResult?.dup} 题（「{targetBankName}」中已存在相同题干）</Text>
         )}
         {(insertResult?.skipped ?? 0) > 0 && (
           <Text style={styles.centerHint}>
@@ -746,6 +796,13 @@ export function ReviewScreen({
       </ScrollView>
 
       <View style={styles.footerBarWrap}>
+        <Pressable style={styles.bankPickRow} onPress={() => void openBankPicker()}>
+          <Text style={styles.bankPickLabel} numberOfLines={1}>
+            入库到：
+            <Text style={styles.bankPickName}>{targetBankName}</Text>
+          </Text>
+          <Text style={styles.bankPickSwitch}>切换 ▾</Text>
+        </Pressable>
         <View style={styles.footerTools}>
           <Pressable style={styles.smallGhost} onPress={() => toggleAll(true)}>
             <Text style={styles.smallGhostText}>全选</Text>
@@ -802,6 +859,50 @@ export function ReviewScreen({
           <Pressable style={styles.modalClose} onPress={() => setShowImage(false)}>
             <Text style={styles.modalCloseText}>关闭</Text>
           </Pressable>
+        </View>
+      </Modal>
+
+      <Modal visible={showBankPicker} transparent animationType="slide" onRequestClose={() => setShowBankPicker(false)}>
+        <View style={styles.sheetBg}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>选择入库题库</Text>
+            <ScrollView style={styles.sheetList}>
+              {banks.map((b) => {
+                const on = b.id === targetBankId;
+                return (
+                  <Pressable
+                    key={b.id}
+                    style={[styles.sheetRow, on && styles.sheetRowOn]}
+                    onPress={() => {
+                      setTargetBankId(b.id);
+                      setShowBankPicker(false);
+                    }}
+                  >
+                    <Text style={[styles.sheetRowName, on && styles.sheetRowNameOn]} numberOfLines={1}>
+                      {b.name}
+                    </Text>
+                    <Text style={styles.sheetRowMeta}>
+                      {b.count} 题{on ? ' · 当前' : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.sheetNewRow}>
+              <TextInput
+                style={styles.sheetInput}
+                value={newBankName}
+                onChangeText={setNewBankName}
+                placeholder="新建题库名称"
+              />
+              <Pressable style={styles.sheetCreateBtn} onPress={() => void createBankAndSelect()}>
+                <Text style={styles.sheetCreateText}>创建并选中</Text>
+              </Pressable>
+            </View>
+            <Pressable style={styles.sheetClose} onPress={() => setShowBankPicker(false)}>
+              <Text style={styles.sheetCloseText}>取消</Text>
+            </Pressable>
+          </View>
         </View>
       </Modal>
     </View>
@@ -887,4 +988,49 @@ const styles = StyleSheet.create({
   modalImage: { width: '100%', height: '85%' },
   modalClose: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 32, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)' },
   modalCloseText: { color: '#fff', fontSize: 15 },
+  bankPickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cfd9ea',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bankPickLabel: { flex: 1, fontSize: 13, color: '#66707f' },
+  bankPickName: { color: '#1c5cd6', fontWeight: '700' },
+  bankPickSwitch: { marginLeft: 10, fontSize: 13, color: '#31518a', fontWeight: '700' },
+  sheetBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 26,
+  },
+  sheetTitle: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
+  sheetList: { maxHeight: 260, marginTop: 8 },
+  sheetRow: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e3e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sheetRowOn: { borderColor: '#1c5cd6', backgroundColor: '#f3f7ff' },
+  sheetRowName: { flex: 1, fontSize: 15, color: '#333' },
+  sheetRowNameOn: { color: '#1c5cd6', fontWeight: '700' },
+  sheetRowMeta: { marginLeft: 10, fontSize: 12, color: '#8a94a6' },
+  sheetNewRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  sheetInput: { flex: 1, backgroundColor: '#f2f5fa', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14 },
+  sheetCreateBtn: { backgroundColor: '#1c5cd6', borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center' },
+  sheetCreateText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  sheetClose: { marginTop: 14, alignItems: 'center', paddingVertical: 12 },
+  sheetCloseText: { color: '#66707f', fontSize: 14 },
 });

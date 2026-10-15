@@ -20,6 +20,7 @@ export interface WrongBookEntry {
   options_json: string;
   source_image_path: string | null;
   status: string;
+  bank_name: string;
 }
 
 export async function recordAnswer(db: SQLiteDatabase, questionId: string, isCorrect: boolean): Promise<void> {
@@ -44,46 +45,48 @@ export async function removeFromWrongBook(db: SQLiteDatabase, questionId: string
   await db.runAsync('DELETE FROM wrong_book WHERE question_id = ?', questionId);
 }
 
-export async function listWrongBook(db: SQLiteDatabase, bankId: string): Promise<WrongBookEntry[]> {
+/** 错题本全局跨库（条目上标注所属库名） */
+export async function listWrongBook(db: SQLiteDatabase): Promise<WrongBookEntry[]> {
   return db.getAllAsync<WrongBookEntry>(
     `SELECT w.question_id, w.wrong_count, w.last_wrong_at,
-            q.stem, q.type, q.answer_json, q.options_json, q.source_image_path, q.status
+            q.stem, q.type, q.answer_json, q.options_json, q.source_image_path, q.status,
+            b.name AS bank_name
        FROM wrong_book w
        JOIN questions q ON q.id = w.question_id
-      WHERE q.bank_id = ? AND q.status != 'disabled'
+       JOIN banks b ON b.id = q.bank_id
+      WHERE q.status != 'disabled'
       ORDER BY w.last_wrong_at DESC`,
-    bankId,
   );
 }
 
-export async function countWrongBook(db: SQLiteDatabase, bankId: string): Promise<number> {
+export async function countWrongBook(db: SQLiteDatabase): Promise<number> {
   const row = await db.getFirstAsync<{ c: number }>(
     `SELECT COUNT(*) AS c FROM wrong_book w JOIN questions q ON q.id = w.question_id
-      WHERE q.bank_id = ? AND q.status != 'disabled'`,
-    bankId,
+      WHERE q.status != 'disabled'`,
   );
   return row?.c ?? 0;
 }
 
-/** 刷题题目来源：题库为全部非停用题；错题本模式为主题库中在错题本里的题 */
+/**
+ * 刷题题目来源：bank 模式 = 指定题库的全部非停用题；wrong 模式 = 全部题库的错题（跨库）。
+ */
 export async function listPracticeQuestions(
   db: SQLiteDatabase,
-  bankId: string,
   mode: 'bank' | 'wrong',
+  bankId?: string,
   limit = 500,
 ): Promise<QuestionRow[]> {
   if (mode === 'wrong') {
     return db.getAllAsync<QuestionRow>(
       `SELECT q.* FROM questions q JOIN wrong_book w ON w.question_id = q.id
-        WHERE q.bank_id = ? AND q.status != 'disabled'
+        WHERE q.status != 'disabled'
         ORDER BY w.last_wrong_at DESC LIMIT ?`,
-      bankId,
       limit,
     );
   }
   return db.getAllAsync<QuestionRow>(
     "SELECT * FROM questions WHERE bank_id = ? AND status != 'disabled' ORDER BY created_at, id LIMIT ?",
-    bankId,
+    bankId ?? '',
     limit,
   );
 }

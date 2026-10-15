@@ -105,7 +105,7 @@ export function BackupScreen({ db, onBack }: BackupScreenProps) {
 
       <Text style={styles.section}>备份内容</Text>
       <Text style={styles.body}>
-        题库题目、错题本、做题记录与设置，导出为一个 JSON 文件（通过系统分享保存到你选择的位置）。
+        题库（含名称）、题目、错题本、做题记录与设置，导出为一个 JSON 文件（通过系统分享保存到你选择的位置）。
         {'\n\n'}
         不包含：试卷原图、题目配图与教材文件——这些文件较大且跨设备路径无效，恢复后需重新关联。
       </Text>

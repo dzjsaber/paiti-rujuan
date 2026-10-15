@@ -20,6 +20,8 @@ import {
   type ExplainProviderId,
 } from '../services/llm/providers';
 
+type SectionKey = 'apikey' | 'model' | 'explain' | 'advanced' | 'data';
+
 export interface SettingsScreenProps {
   onBack: () => void;
   onOpenSelfTest: () => void;
@@ -35,6 +37,7 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
   const [dsInput, setDsInput] = useState('');
   const [custom, setCustom] = useState<CustomConfig>({ url: '', model: '', apiKey: '' });
   const [customInput, setCustomInput] = useState<CustomConfig>({ url: '', model: '', apiKey: '' });
+  const [section, setSection] = useState<SectionKey | null>(null);
 
   const refresh = useCallback(async () => {
     setCurrent(await getApiKey());
@@ -92,6 +95,18 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
     await refresh();
   }, [refresh]);
 
+  const groups: { key: SectionKey; title: string; summary: string }[] = [
+    {
+      key: 'apikey',
+      title: 'API Key',
+      summary: `智谱${current ? '已配置' : '未配置'} · DeepSeek ${dsKey ? '已配置' : '未配置'}`,
+    },
+    { key: 'model', title: '识别模型', summary: MODEL_TIERS[tier].label },
+    { key: 'explain', title: '讲解方式', summary: EXPLAIN_PROVIDERS[explainProvider].label },
+    { key: 'advanced', title: '附加配置', summary: custom.url ? '自定义接口已配置' : '自定义接口未配置' },
+    { key: 'data', title: '数据', summary: '备份与恢复 · 技术自检' },
+  ];
+
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
@@ -102,6 +117,26 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         <View style={styles.spacer} />
       </View>
 
+      {section === null ? (
+        <>
+          {groups.map((g) => (
+            <Pressable key={g.key} style={styles.groupBtn} onPress={() => setSection(g.key)}>
+              <View style={styles.groupMain}>
+                <Text style={styles.groupTitle}>{g.title}</Text>
+                <Text style={styles.groupSummary}>{g.summary}</Text>
+              </View>
+              <Text style={styles.groupArrow}>›</Text>
+            </Pressable>
+          ))}
+        </>
+      ) : (
+        <>
+          <Pressable onPress={() => setSection(null)} hitSlop={8} style={styles.groupBack}>
+            <Text style={styles.back}>← 返回设置</Text>
+          </Pressable>
+
+          {section === 'apikey' && (
+            <>
       <Text style={styles.section}>智谱 API Key（自带，仅存本机）</Text>
       <Text style={styles.hint}>当前：{maskKey(current)}</Text>
       <TextInput
@@ -137,6 +172,11 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         <Text style={styles.btnText}>保存 DeepSeek Key</Text>
       </Pressable>
 
+            </>
+          )}
+
+          {section === 'advanced' && (
+            <>
       <Text style={styles.section}>自定义接口（可选，OpenAI 兼容）</Text>
       <Text style={styles.hint}>
         当前：{custom.url ? `${custom.model || '（未填模型）'} @ ${custom.url}` : '（未配置）'}
@@ -170,6 +210,11 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         <Text style={styles.btnText}>保存自定义配置</Text>
       </Pressable>
 
+            </>
+          )}
+
+          {section === 'model' && (
+            <>
       <Text style={styles.section}>识别模型</Text>
       {(Object.keys(MODEL_TIERS) as ModelTier[]).map((t) => {
         const info = MODEL_TIERS[t];
@@ -191,6 +236,11 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
       })}
       <Text style={styles.hint}>高级档按量计费（从智谱账户扣费），使用前请确认余额。</Text>
 
+            </>
+          )}
+
+          {section === 'explain' && (
+            <>
       <Text style={styles.section}>讲解方式</Text>
       {(Object.keys(EXPLAIN_PROVIDERS) as ExplainProviderId[]).map((m) => {
         const info = EXPLAIN_PROVIDERS[m];
@@ -213,6 +263,11 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         );
       })}
 
+            </>
+          )}
+
+          {section === 'data' && (
+            <>
       <Pressable style={styles.btnGhost} onPress={onOpenSelfTest}>
         <Text style={styles.btnGhostText}>运行技术自检（SQLite / 图片压缩）</Text>
       </Pressable>
@@ -221,6 +276,10 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         <Text style={styles.btnGhostText}>数据备份与恢复</Text>
       </Pressable>
 
+            </>
+          )}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -233,6 +292,22 @@ const styles = StyleSheet.create({
   spacer: { width: 52 },
   section: { marginTop: 28, fontSize: 15, fontWeight: '700', color: '#333' },
   hint: { marginTop: 8, fontSize: 13, color: '#777' },
+  groupBtn: {
+    marginTop: 14,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe1ec',
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  groupMain: { flex: 1 },
+  groupTitle: { fontSize: 16, fontWeight: '700', color: '#222' },
+  groupSummary: { marginTop: 4, fontSize: 12, color: '#777' },
+  groupArrow: { fontSize: 24, color: '#98a2b3', marginLeft: 10 },
+  groupBack: { marginTop: 20 },
   input: {
     marginTop: 10,
     backgroundColor: '#fff',
