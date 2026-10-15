@@ -198,6 +198,12 @@ CREATE INDEX IF NOT EXISTS idx_material_images ON material_images(material_id);`
   PRIMARY KEY (bank_id, material_id)
 );`,
   },
+  {
+    version: 7,
+    name: '007_ai_explanation',
+    // AI 讲解独立存储：与题目自带解析 analysis 分开，避免互相覆盖
+    sql: 'ALTER TABLE questions ADD COLUMN ai_explanation TEXT;',
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

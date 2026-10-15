@@ -13,7 +13,10 @@ export interface QuestionRow {
   stem: string;
   options_json: string;
   answer_json: string;
+  /** 题目自带解析（试卷/文档导入时提取，或被人工编辑；AI 讲解不写这里） */
   analysis: string | null;
+  /** AI 讲解（生成后自动保存，与自带解析分开存储） */
+  ai_explanation: string | null;
   tags_json: string;
   confidence: number | null;
   review_reasons_json: string;
@@ -141,9 +144,9 @@ export async function countAllQuestions(db: SQLiteDatabase): Promise<number> {
   return row?.c ?? 0;
 }
 
-/** 写入/清除题目解析（F7：AI 讲解生成后自动保存；传 null 表示删除讲解） */
-export async function setQuestionAnalysis(db: SQLiteDatabase, id: string, analysis: string | null): Promise<void> {
-  await db.runAsync('UPDATE questions SET analysis = ?, updated_at = ? WHERE id = ?', analysis, new Date().toISOString(), id);
+/** 写入/清除 AI 讲解（与自带解析 analysis 分开；传 null 表示删除讲解） */
+export async function setQuestionExplanation(db: SQLiteDatabase, id: string, text: string | null): Promise<void> {
+  await db.runAsync('UPDATE questions SET ai_explanation = ?, updated_at = ? WHERE id = ?', text, new Date().toISOString(), id);
 }
 
 /** 编辑已入库题目（题干/选项/答案/校验状态），并同步 FTS 索引 */

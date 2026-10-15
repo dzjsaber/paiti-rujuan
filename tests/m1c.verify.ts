@@ -60,6 +60,7 @@ async function main(): Promise<void> {
       options_json: JSON.stringify(DRAFT.options),
       answer_json: JSON.stringify(DRAFT.answer),
       analysis: null,
+      ai_explanation: null,
       tags_json: JSON.stringify(DRAFT.tags),
       confidence: DRAFT.confidence ?? null,
       review_reasons_json: '[]',

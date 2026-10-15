@@ -24,6 +24,7 @@ const QUESTION: QuestionRow = {
   options_json: '[]',
   answer_json: 'null',
   analysis: null,
+  ai_explanation: null,
   tags_json: '[]',
   confidence: null,
   review_reasons_json: '[]',
@@ -114,12 +115,13 @@ check('超大文本 → 拒绝', () => {
   assert(!v.ok && v.error.includes('过大'), '应提示过大');
 });
 
-check('questionRowToParams 列序与数量（20 列）', () => {
+check('questionRowToParams 列序与数量（21 列，含 ai_explanation）', () => {
   const p = questionRowToParams(QUESTION);
-  assert(p.length === 20, `应 20 个参数，实际 ${p.length}`);
+  assert(p.length === 21, `应 21 个参数，实际 ${p.length}`);
   assert(p[0] === 'q1' && p[1] === 'bank_default' && p[3] === '题干', '前四列应为 id/bank_id/type/stem');
   assert(p[14] === null, '第 15 列（question_image_path）应为 null');
   assert(p[15] === 'zhipu', '第 16 列应为 source_engine');
+  assert(p[20] === null, '第 21 列（ai_explanation）应为 null');
 });
 
 const total = passed + fails.length;

@@ -12,7 +12,7 @@ import { buildSearchTerms, clipHitText } from '../core/searchTerms';
 import { searchMaterialsSmart } from '../db/fts';
 import { listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_banks';
 import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
-import { setQuestionAnalysis, type QuestionRow } from '../db/repo_questions';
+import { setQuestionExplanation, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
 import { renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
 import { TEXT_MODEL, type LLMService } from '../services/llm/LLMService';
@@ -45,6 +45,8 @@ interface ParsedQuestion {
   answer: unknown;
   answerText: string;
   analysis: string | null;
+  /** 已保存的 AI 讲解（与自带解析分开） */
+  explanation: string | null;
   sourceImage: string | null;
   questionImage: string | null;
 }
@@ -80,6 +82,7 @@ function parseRow(row: QuestionRow): ParsedQuestion {
     answer,
     answerText,
     analysis: row.analysis,
+    explanation: row.ai_explanation,
     sourceImage: row.source_image_path,
     questionImage: row.question_image_path,
   };
@@ -225,12 +228,12 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     next();
   }, [next]);
 
-  /** 讲解生成后自动保存为该题解析（按用户要求：无需确认，生成完成即保存） */
-  const saveAnalysis = useCallback(
+  /** 讲解生成后自动保存为该题 AI 讲解（独立字段，不覆盖自带解析） */
+  const saveExplanation = useCallback(
     async (questionId: string, text: string): Promise<'ok' | 'fail'> => {
       try {
-        await setQuestionAnalysis(db, questionId, text);
-        setQuestions((prev) => prev.map((x) => (x.id === questionId ? { ...x, analysis: text } : x)));
+        await setQuestionExplanation(db, questionId, text);
+        setQuestions((prev) => prev.map((x) => (x.id === questionId ? { ...x, explanation: text } : x)));
         return 'ok';
       } catch {
         return 'fail';
@@ -296,7 +299,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           return;
         }
         const text = r.content.trim();
-        const saved = await saveAnalysis(q.id, text);
+        const saved = await saveExplanation(q.id, text);
         apply({
           loading: false,
           text,
@@ -320,7 +323,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         });
       }
     },
-    [db, llm, q, saveAnalysis],
+    [db, llm, q, saveExplanation],
   );
 
   /** 教材未命中、经用户确认后的降级讲解：智谱联网搜索 / 其他提供商模型知识 */
@@ -346,13 +349,13 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           return;
         }
         const text = r.content.trim();
-        const saved = await saveAnalysis(q.id, text);
+        const saved = await saveExplanation(q.id, text);
         apply({ loading: false, text, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved });
       } catch (e) {
         apply({ loading: false, text: null, error: String((e as Error)?.message ?? e), evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved: null });
       }
     },
-    [llm, q, saveAnalysis],
+    [llm, q, saveExplanation],
   );
 
   const feedbackWrong = useCallback(async () => {
@@ -365,10 +368,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     }
   }, [db, q]);
 
-  /** 删除这道题已保存的讲解（题目解析清空，可重新生成） */
+  /** 删除这道题已保存的 AI 讲解（自带解析不受影响，可重新生成） */
   const removeExplain = useCallback(() => {
     if (!q) return;
-    Alert.alert('删除这道题的讲解？', '保存的解析会被清除，之后可以重新生成。', [
+    Alert.alert('删除这道题的 AI 讲解？', '之后可以重新生成；题目自带解析不受影响。', [
       { text: '取消', style: 'cancel' },
       {
         text: '删除',
@@ -376,8 +379,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         onPress: () => {
           void (async () => {
             try {
-              await setQuestionAnalysis(db, q.id, null);
-              setQuestions((prev) => prev.map((x) => (x.id === q.id ? { ...x, analysis: null } : x)));
+              await setQuestionExplanation(db, q.id, null);
+              setQuestions((prev) => prev.map((x) => (x.id === q.id ? { ...x, explanation: null } : x)));
               setExplain(null);
             } catch (e) {
               Alert.alert('删除失败', String((e as Error)?.message ?? e));
@@ -552,6 +555,12 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const judged = stage === 'judged';
   const noAnswer = q.answer === null || q.answer === undefined;
   const opts = q.type === 'judge' ? [{ id: 'T', text: '正确' }, { id: 'F', text: '错误' }] : q.options;
+  /** 展示用讲解：本次生成的优先；无本次结果时回放已保存的 AI 讲解 */
+  const shownExplain: ExplainState | null =
+    explain ??
+    (q.explanation
+      ? { loading: false, text: q.explanation, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null, saved: 'ok' }
+      : null);
 
   return (
     <View style={styles.page}>
@@ -605,19 +614,19 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             {result?.correct === null && (
               <Text style={styles.warnText}>该题暂无答案，无法自动判定（可在"导入历史"里补充答案后重新校验）</Text>
             )}
-            {q.analysis && !explain?.text ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
-            {explain === null && (
+            {q.analysis ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
+            {shownExplain === null && (
               <Pressable style={styles.explainBtn} onPress={() => void onExplainPress()}>
                 <Text style={styles.explainBtnText}>{explainProvider === 'external' ? '发给豆包讲解' : 'AI 讲解'}</Text>
               </Pressable>
             )}
-            {explain?.loading && (
+            {shownExplain?.loading && (
               <View style={styles.explainLoading}>
                 <ActivityIndicator size="small" />
                 <Text style={styles.explainLoadingText}>正在生成讲解…</Text>
               </View>
             )}
-            {explain?.noEvidence && (
+            {shownExplain?.noEvidence && (
               <>
                 <Text style={styles.warnText}>未在绑定教材里检索到相关内容（教材可能用了不同措辞）。</Text>
                 <Pressable style={styles.explainBtn} onPress={() => void onFallbackPress()}>
@@ -629,21 +638,21 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 </Pressable>
               </>
             )}
-            {explain?.error ? (
+            {shownExplain?.error ? (
               <>
-                <Text style={styles.explainError}>讲解生成失败：{explain.error}</Text>
+                <Text style={styles.explainError}>讲解生成失败：{shownExplain.error}</Text>
                 <Pressable style={styles.explainBtn} onPress={() => void onExplainPress()}>
                   <Text style={styles.explainBtnText}>重试讲解</Text>
                 </Pressable>
               </>
             ) : null}
-            {explain?.text ? (
+            {shownExplain?.text ? (
               <View style={styles.explainCard}>
-                <Text style={styles.explainText}>{explain.text}</Text>
-                {explain.evidence.length > 0 ? (
+                <Text style={styles.explainText}>{shownExplain.text}</Text>
+                {shownExplain.evidence.length > 0 ? (
                   <View style={styles.evidenceBox}>
                     <Text style={styles.evidenceTitle}>教材依据</Text>
-                    {explain.evidence.map((e) => (
+                    {shownExplain.evidence.map((e) => (
                       <View key={e.index} style={styles.evidenceItem}>
                         <Text style={styles.evidenceSource}>
                           [{e.index}] {e.source}
@@ -654,18 +663,18 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                       </View>
                     ))}
                   </View>
-                ) : explain.fallback ? null : (
+                ) : shownExplain.fallback ? null : (
                   <Text style={styles.noLibrary}>（未引用教材：教材库为空或没有命中内容）</Text>
                 )}
-                {explain.fallback ? (
+                {shownExplain.fallback ? (
                   <Text style={styles.aiWarn}>
-                    未依据教材（{explain.fallback === 'web' ? '联网搜索结果' : '模型自身知识'}），仅供参考
+                    未依据教材（{shownExplain.fallback === 'web' ? '联网搜索结果' : '模型自身知识'}），仅供参考
                   </Text>
                 ) : (
                   <Text style={styles.aiWarn}>AI 生成内容，仅供参考</Text>
                 )}
-                {explain.saved === 'ok' && <Text style={styles.savedTag}>✓ 已自动保存为解析</Text>}
-                {explain.saved === 'fail' && (
+                {shownExplain.saved === 'ok' && <Text style={styles.savedTag}>✓ 讲解已保存</Text>}
+                {shownExplain.saved === 'fail' && (
                   <Text style={styles.savedFail}>自动保存失败（不影响查看，重新生成会再试）</Text>
                 )}
                 <View style={styles.explainActions}>

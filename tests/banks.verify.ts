@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { searchMaterialsSmart } from '../src/db/fts';
 import { MIGRATIONS } from '../src/db/schema';
-import { countAllQuestions, setQuestionAnalysis } from '../src/db/repo_questions';
+import { countAllQuestions, setQuestionExplanation } from '../src/db/repo_questions';
 import {
   createBank,
   deleteBank,
@@ -210,15 +210,19 @@ async function main(): Promise<void> {
     assert((await searchMaterialsSmart(db, '8051单片机', 5, ['m1'])).length === 1, 'm1 应只命中 1 段');
   });
 
-  await check('讲解自动保存/删除：setQuestionAnalysis 写入与 null 清空', async () => {
+  await check('AI 讲解独立保存/删除：不影响题目自带解析', async () => {
     const db = freshDb();
     const q1 = await insertQuestionRow(db, 'bank_default', '题 1');
-    await setQuestionAnalysis(db, q1, 'AI 讲解内容');
-    const saved = await db.getFirstAsync<{ analysis: string | null }>('SELECT analysis FROM questions WHERE id = ?', q1);
-    assert(saved?.analysis === 'AI 讲解内容', '应写入解析');
-    await setQuestionAnalysis(db, q1, null);
-    const cleared = await db.getFirstAsync<{ analysis: string | null }>('SELECT analysis FROM questions WHERE id = ?', q1);
-    assert(cleared?.analysis === null, 'null 应清空解析');
+    await db.runAsync("UPDATE questions SET analysis = '自带解析' WHERE id = ?", q1);
+    await setQuestionExplanation(db, q1, 'AI 讲解内容');
+    type Row = { analysis: string | null; ai_explanation: string | null };
+    const saved = await db.getFirstAsync<Row>('SELECT analysis, ai_explanation FROM questions WHERE id = ?', q1);
+    assert(saved?.ai_explanation === 'AI 讲解内容', 'AI 讲解应写入 ai_explanation');
+    assert(saved?.analysis === '自带解析', '自带解析不应被覆盖');
+    await setQuestionExplanation(db, q1, null);
+    const cleared = await db.getFirstAsync<Row>('SELECT analysis, ai_explanation FROM questions WHERE id = ?', q1);
+    assert(cleared?.ai_explanation === null, 'null 应清空 AI 讲解');
+    assert(cleared?.analysis === '自带解析', '删除讲解不应影响自带解析');
   });
 
   await check('恢复 v1 备份：题目引用的库不存在时兜底建库，题不丢', async () => {
