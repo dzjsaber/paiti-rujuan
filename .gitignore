@@ -41,6 +41,6 @@ yarn-error.*
 /android
 
 # Verification artifacts (local only)
-dist-m1*/
+dist-m1[a-d]*/
 m1a-*.log
 m1a-audit*.json
