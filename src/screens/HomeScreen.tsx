@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { DEFAULT_BANK_ID } from '../db/database';
+import { getUnfinishedBatches, type ImportBatchRow } from '../db/repo_imports';
 import { countQuestions } from '../db/repo_questions';
 
 export interface ReviewParams {
@@ -17,17 +18,25 @@ export interface HomeScreenProps {
   db: SQLiteDatabase;
   onOpenReview: (p: ReviewParams) => void;
   onOpenSettings: () => void;
+  /** 恢复未完成的导入批次（应用被杀/中断后） */
+  onResume: (batchId: string) => void;
 }
 
-export function HomeScreen({ db, onOpenReview, onOpenSettings }: HomeScreenProps) {
+export function HomeScreen({ db, onOpenReview, onOpenSettings, onResume }: HomeScreenProps) {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<ImportBatchRow[]>([]);
 
   const refresh = useCallback(async () => {
     try {
       setCount(await countQuestions(db, DEFAULT_BANK_ID));
     } catch {
       setCount(null);
+    }
+    try {
+      setPending(await getUnfinishedBatches(db));
+    } catch {
+      setPending([]);
     }
   }, [db]);
 
@@ -104,6 +113,19 @@ export function HomeScreen({ db, onOpenReview, onOpenSettings }: HomeScreenProps
 
       {busy && <ActivityIndicator style={styles.busy} />}
 
+      {pending.length > 0 && (
+        <View style={styles.pendingCard}>
+          <Text style={styles.pendingTitle}>未完成的导入（{pending.length}）</Text>
+          {pending.map((b) => (
+            <Pressable key={b.id} style={styles.pendingItem} onPress={() => onResume(b.id)}>
+              <Text style={styles.pendingText}>
+                批次 {b.created_at.slice(5, 16).replace('T', ' ')} · 点击继续处理
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       <Text style={styles.footer}>图片在本地压缩后直传智谱识别接口，不经第三方图床。</Text>
     </View>
   );
@@ -126,5 +148,9 @@ const styles = StyleSheet.create({
   bigBtnAltText: { color: '#1c5cd6', fontSize: 18, fontWeight: '700' },
   bigBtnAltHint: { color: '#8a94a6', fontSize: 12, marginTop: 4 },
   busy: { marginTop: 20 },
+  pendingCard: { marginTop: 22, backgroundColor: '#fff7e6', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#f0d9a8' },
+  pendingTitle: { fontSize: 14, fontWeight: '700', color: '#8a6d1c' },
+  pendingItem: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: '#fff', borderRadius: 8 },
+  pendingText: { fontSize: 13, color: '#6d5a22' },
   footer: { marginTop: 'auto', marginBottom: 24, fontSize: 11, color: '#9aa2b1', lineHeight: 16 },
 });

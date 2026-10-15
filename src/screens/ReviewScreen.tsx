@@ -1,6 +1,8 @@
 /**
- * F1 识别流程 + F3 批量确认页：
- * 压缩 → 识别 → ResponseParser → F2 → 草稿持久化 → 人工确认/编辑 → 单题独立事务入库。
+ * F1 识别流程 + F3 批量确认页（M1-C/M1-D）：
+ * 压缩 → 识别（整页未成功自动切半兜底；可手动框选重识别）→ ResponseParser → F2
+ * → 草稿持久化 → 人工确认/编辑 → 单题独立事务入库（题干查重防重复入库）。
+ * 支持从持久化草稿恢复（应用被杀后重启不丢进度、不重复入库）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,15 +18,27 @@ import {
   View,
 } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { CropModal } from '../components/CropModal';
 import type { QuestionAnswer, QuestionDraft, ReviewStatus } from '../core/models';
 import { f2ValidatePage, f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer, normalizeOptions } from '../core/validation/normalize';
 import { DEFAULT_BANK_ID } from '../db/database';
 import { indexQuestion } from '../db/fts';
-import { createBatch, createPage, saveDraftItems, setItemStatus, updateItemDraft, updatePageStatus } from '../db/repo_imports';
+import {
+  createBatch,
+  createPage,
+  deleteDraftItemsByPage,
+  getItemsByBatch,
+  getPagesByBatch,
+  rowToDraft,
+  saveDraftItems,
+  setItemStatus,
+  updateItemDraft,
+  updatePageStatus,
+} from '../db/repo_imports';
 import { insertQuestion } from '../db/repo_questions';
 import { RECOGNITION_PROMPT } from '../prompts/recognition';
-import { prepareImageForRecognition } from '../services/image';
+import { cropImage, makeHalves, prepareImageForRecognition, type CropRect, type PreparedImage } from '../services/image';
 import type { LLMService } from '../services/llm/LLMService';
 import { getModelTier, modelIdForTier } from '../services/modelPrefs';
 import { parseModelText } from '../services/llm/ResponseParser';
@@ -44,12 +58,19 @@ interface ReviewItem {
 export interface ReviewScreenProps {
   db: SQLiteDatabase;
   llm: LLMService;
-  imagePath: string;
+  onDone: () => void;
+  /** 新识别模式 */
+  imagePath?: string;
   imageWidth?: number;
   imageHeight?: number;
-  sourceType: 'photo' | 'gallery';
-  onDone: () => void;
+  sourceType?: 'photo' | 'gallery';
+  /** 恢复模式（传入未完成批次 ID） */
+  resumeBatchId?: string;
 }
+
+type RecognizeOutcome =
+  | { ok: true; drafts: unknown[]; mode: string; latencyMs: number; attempts: number }
+  | { ok: false; message: string; code: string | null };
 
 function answerToText(a: QuestionAnswer): string {
   if (a === null || a === undefined) return '';
@@ -70,56 +91,59 @@ function typeLabel(t: string): string {
   return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : t;
 }
 
-export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sourceType, onDone }: ReviewScreenProps) {
+export function ReviewScreen({
+  db,
+  llm,
+  onDone,
+  imagePath,
+  imageWidth,
+  imageHeight,
+  sourceType,
+  resumeBatchId,
+}: ReviewScreenProps) {
   const [phase, setPhase] = useState<Phase>('recognizing');
   const [progressText, setProgressText] = useState('正在压缩图片…');
   const [items, setItems] = useState<ReviewItem[]>([]);
-  const [imageUri, setImageUri] = useState(imagePath);
+  const [imageUri, setImageUri] = useState(imagePath ?? '');
+  const [imageDims, setImageDims] = useState<{ w: number; h: number }>({
+    w: imageWidth ?? 0,
+    h: imageHeight ?? 0,
+  });
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<string | null>(null);
-  const [insertResult, setInsertResult] = useState<{ ok: number; failed: string[] } | null>(null);
+  const [insertResult, setInsertResult] = useState<{ ok: number; dup: number; failed: string[] } | null>(null);
   const [showImage, setShowImage] = useState(false);
+  const [showCrop, setShowCrop] = useState(false);
+
   const itemsRef = useRef<ReviewItem[]>([]);
+  const batchRef = useRef<string | null>(null);
+  const pageRef = useRef<string | null>(null);
+  const preparedRef = useRef<PreparedImage | null>(null);
+  const startedRef = useRef(false);
+
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
-  const runRecognition = useCallback(async () => {
-    setPhase('recognizing');
-    setError(null);
-    setProgressText('正在压缩图片…');
-    try {
-      const prepared = await prepareImageForRecognition(imagePath, imageWidth, imageHeight);
-      setImageUri(prepared.uri);
-      const batchId = await createBatch(db, sourceType);
-      const pageId = await createPage(db, batchId, prepared.uri, 1);
-      await updatePageStatus(db, pageId, 'processing', null, true);
-
-      setProgressText('正在识别（大模型推理中，约 10-60 秒）…');
-      const tier = await getModelTier();
-      const engine = new ZhipuVisionEngine(llm, modelIdForTier(tier));
-      const out = await engine.recognize({ imageBase64: prepared.base64, prompt: RECOGNITION_PROMPT });
+  const recognizeOnce = useCallback(
+    async (engine: ZhipuVisionEngine, b64: string): Promise<RecognizeOutcome> => {
+      const out = await engine.recognize({ imageBase64: b64, prompt: RECOGNITION_PROMPT });
       if (!out.ok || !out.raw) {
-        await updatePageStatus(db, pageId, 'failed', out.error?.code ?? 'unknown');
-        setError(out.error?.userMessage ?? '识别请求失败');
-        setPhase('error');
-        return;
+        return { ok: false, message: out.error?.userMessage ?? '识别请求失败', code: out.error?.code ?? null };
       }
       const parsed = parseModelText(out.raw);
       if (!parsed.drafts) {
-        await updatePageStatus(db, pageId, 'failed', 'parse');
-        setError('模型输出无法解析：' + (parsed.error ?? '未知原因'));
-        setPhase('error');
-        return;
+        return { ok: false, message: '模型输出无法解析：' + (parsed.error ?? '未知原因'), code: 'parse' };
       }
-      if (parsed.drafts.length === 0) {
-        await updatePageStatus(db, pageId, 'recognized');
-        setError('本页未识别到题目。可以重试，或换一张更清晰、更完整的图片。');
-        setPhase('error');
-        return;
-      }
-      const f2 = f2ValidatePage(parsed.drafts);
-      const drafts: QuestionDraft[] = parsed.drafts.map((d, i) => {
+      return { ok: true, drafts: parsed.drafts, mode: parsed.mode, latencyMs: out.latencyMs, attempts: out.attempts };
+    },
+    [],
+  );
+
+  const applyDrafts = useCallback(
+    async (drafts: unknown[], progressLabel: string) => {
+      const f2 = f2ValidatePage(drafts);
+      const questionDrafts: QuestionDraft[] = drafts.map((d, i) => {
         const base = (d && typeof d === 'object' && !Array.isArray(d) ? d : {}) as Record<string, unknown>;
         const r = f2[i];
         const rawOptions = Array.isArray(base.options) ? base.options : [];
@@ -133,17 +157,22 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
           confidence: typeof base.confidence === 'number' ? base.confidence : null,
           review_reasons: r.issues.map((x) => x.message),
           visual_features: Array.isArray(base.visual_features) ? base.visual_features.map(String) : [],
-          source_image_path: prepared.uri,
+          source_image_path: preparedRef.current?.uri ?? imageUri,
           source_page: 1,
           source_engine: 'zhipu',
           status: 'pending',
           review_status: r.status,
         } as QuestionDraft;
       });
-      const ids = await saveDraftItems(db, batchId, pageId, drafts, 'draft', out.raw);
-      await updatePageStatus(db, pageId, 'needs_review');
+      if (pageRef.current) {
+        await deleteDraftItemsByPage(db, pageRef.current);
+      }
+      const ids = await saveDraftItems(db, batchRef.current ?? '', pageRef.current ?? '', questionDrafts, 'draft', null);
+      if (pageRef.current) {
+        await updatePageStatus(db, pageRef.current, 'needs_review');
+      }
       setItems(
-        drafts.map((d, i) => ({
+        questionDrafts.map((d, i) => ({
           itemId: ids[i],
           draft: d,
           status: f2[i].status,
@@ -152,17 +181,167 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
           answerText: answerToText(d.answer),
         })),
       );
-      setStats(`耗时 ${(out.latencyMs / 1000).toFixed(1)}s · 尝试 ${out.attempts} 次 · 解析 ${parsed.mode}`);
+      setStats(progressLabel);
       setPhase('reviewing');
-    } catch (e) {
-      setError(String((e as Error)?.message ?? e));
-      setPhase('error');
-    }
-  }, [db, llm, imagePath, imageWidth, imageHeight, sourceType]);
+    },
+    [db, imageUri],
+  );
+
+  const runRecognition = useCallback(
+    async (opts?: { crop?: CropRect }) => {
+      setPhase('recognizing');
+      setError(null);
+      setProgressText(opts?.crop ? '正在裁切选区…' : '正在压缩图片…');
+      try {
+        if (!imagePath) {
+          setError('缺少图片来源');
+          setPhase('error');
+          return;
+        }
+        let prep = preparedRef.current;
+        if (!prep) {
+          prep = await prepareImageForRecognition(imagePath, imageWidth, imageHeight);
+          preparedRef.current = prep;
+          setImageUri(prep.uri);
+          setImageDims({ w: prep.width, h: prep.height });
+        }
+        if (!batchRef.current) {
+          batchRef.current = await createBatch(db, sourceType ?? 'photo');
+          pageRef.current = await createPage(db, batchRef.current, prep.uri, 1);
+        }
+        if (pageRef.current) {
+          await updatePageStatus(db, pageRef.current, 'processing', null, true);
+        }
+        const tier = await getModelTier();
+        const engine = new ZhipuVisionEngine(llm, modelIdForTier(tier));
+
+        const finish = async (outcome: RecognizeOutcome, label: string) => {
+          if (!outcome.ok) {
+            if (pageRef.current) {
+              await updatePageStatus(db, pageRef.current, 'failed', outcome.code ?? 'unknown');
+            }
+            setError(outcome.message);
+            setPhase('error');
+            return;
+          }
+          if (outcome.drafts.length === 0) {
+            if (pageRef.current) {
+              await updatePageStatus(db, pageRef.current, 'recognized');
+            }
+            setError('本页未识别到题目。可以重试、手动框选局部区域，或换一张更清晰完整的图片。');
+            setPhase('error');
+            return;
+          }
+          await applyDrafts(outcome.drafts, label);
+        };
+
+        // 模式 1：用户手动框选 → 只识别选区
+        if (opts?.crop) {
+          setProgressText('正在识别选区…');
+          const cropped = await cropImage(prep.uri, opts.crop);
+          const r = await recognizeOnce(engine, cropped.base64);
+          if (r.ok) {
+            await finish(r, `选区识别 · 耗时 ${(r.latencyMs / 1000).toFixed(1)}s · 解析 ${r.mode}`);
+          } else {
+            await finish(r, '');
+          }
+          return;
+        }
+
+        // 模式 2：整页识别，失败/空则自动切半兜底
+        setProgressText('正在识别（大模型推理中，约 10-60 秒）…');
+        const whole = await recognizeOnce(engine, prep.base64);
+        if (whole.ok && whole.drafts.length > 0) {
+          await finish(whole, `整页识别 · 耗时 ${(whole.latencyMs / 1000).toFixed(1)}s · 解析 ${whole.mode}`);
+          return;
+        }
+        const firstIssue = whole.ok ? '整页未提取到题目' : whole.message;
+        setProgressText('整页识别未成功，正在尝试上下半页…');
+        const halves = await makeHalves(prep);
+        const merged: unknown[] = [];
+        let mergedLatency = 0;
+        let halfFailReason: string | null = null;
+        for (const half of halves) {
+          const r = await recognizeOnce(engine, half.base64);
+          if (r.ok) {
+            merged.push(...r.drafts);
+            mergedLatency += r.latencyMs;
+          } else {
+            halfFailReason = r.message;
+          }
+        }
+        if (merged.length > 0) {
+          await finish(
+            { ok: true, drafts: merged, mode: 'halves', latencyMs: whole.ok ? whole.latencyMs + mergedLatency : mergedLatency, attempts: 2 },
+            `上下半页合并 · 耗时 ${((mergedLatency + (whole.ok ? whole.latencyMs : 0)) / 1000).toFixed(1)}s（整页：${firstIssue}）`,
+          );
+          return;
+        }
+        await finish(
+          {
+            ok: false,
+            message: `本页识别未成功（整页：${firstIssue}${halfFailReason ? '；切半：' + halfFailReason : ''}）。可手动框选局部区域再试。`,
+            code: 'all_failed',
+          },
+          '',
+        );
+      } catch (e) {
+        setError(String((e as Error)?.message ?? e));
+        setPhase('error');
+      }
+    },
+    [db, llm, imagePath, imageWidth, imageHeight, sourceType, recognizeOnce, applyDrafts],
+  );
+
+  const loadExisting = useCallback(
+    async (batchId: string) => {
+      try {
+        const rows = await getItemsByBatch(db, batchId);
+        const pages = await getPagesByBatch(db, batchId);
+        const restored: ReviewItem[] = rows
+          .filter((r) => r.status === 'draft' || r.status === 'needs_review' || r.status === 'approved_for_insert')
+          .map((r) => {
+            const d = rowToDraft(r);
+            const status = (d.review_status ?? 'needs_review') as ReviewStatus;
+            return {
+              itemId: r.id,
+              draft: d,
+              status,
+              issues: d.review_reasons ?? [],
+              selected: status !== 'invalid',
+              answerText: answerToText(d.answer),
+            };
+          });
+        batchRef.current = batchId;
+        pageRef.current = pages[0]?.id ?? null;
+        if (pages[0]?.image_path) {
+          setImageUri(pages[0].image_path);
+        }
+        if (restored.length === 0) {
+          setError('该批次没有待处理的草稿（可能已全部入库或丢弃）。');
+          setPhase('error');
+          return;
+        }
+        setItems(restored);
+        setStats('从上次中断处恢复');
+        setPhase('reviewing');
+      } catch (e) {
+        setError('恢复草稿失败：' + String((e as Error)?.message ?? e));
+        setPhase('error');
+      }
+    },
+    [db],
+  );
 
   useEffect(() => {
-    void runRecognition();
-  }, [runRecognition]);
+    if (startedRef.current) return;
+    startedRef.current = true;
+    if (resumeBatchId) {
+      void loadExisting(resumeBatchId);
+    } else {
+      void runRecognition();
+    }
+  }, [resumeBatchId, loadExisting, runRecognition]);
 
   const patchItem = useCallback((id: string, patch: Partial<ReviewItem>) => {
     setItems((prev) => prev.map((x) => (x.itemId === id ? { ...x, ...patch } : x)));
@@ -212,9 +391,21 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
     }
     setPhase('inserting');
     let ok = 0;
+    let dup = 0;
     const failed: string[] = [];
     for (const it of targets) {
       try {
+        // 防重复入库：库中已存在相同题干（非停用）则跳过
+        const existing = await db.getFirstAsync<{ id: string }>(
+          "SELECT id FROM questions WHERE bank_id = ? AND stem = ? AND status != 'disabled' LIMIT 1",
+          DEFAULT_BANK_ID,
+          it.draft.stem,
+        );
+        if (existing) {
+          dup += 1;
+          await setItemStatus(db, it.itemId, 'discarded');
+          continue;
+        }
         await db.withTransactionAsync(async () => {
           const qid = await insertQuestion(db, DEFAULT_BANK_ID, { ...it.draft, review_status: it.status });
           await indexQuestion(db, qid, it.draft.stem);
@@ -230,7 +421,7 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
         }
       }
     }
-    setInsertResult({ ok, failed });
+    setInsertResult({ ok, dup, failed });
     setPhase('done');
   }, [db]);
 
@@ -244,7 +435,7 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
       <View style={styles.center}>
         <ActivityIndicator size="large" />
         <Text style={styles.centerText}>{progressText}</Text>
-        <Text style={styles.centerHint}>识别失败不会丢失照片，可以随时重试。</Text>
+        <Text style={styles.centerHint}>识别失败不会丢失照片，可以随时重试或框选局部区域。</Text>
       </View>
     );
   }
@@ -254,12 +445,30 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
       <View style={styles.center}>
         <Text style={styles.errorTitle}>识别未完成</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <Pressable style={styles.primaryBtn} onPress={() => void runRecognition()}>
-          <Text style={styles.primaryBtnText}>重试识别</Text>
-        </Pressable>
+        {!resumeBatchId && (
+          <>
+            <Pressable style={styles.primaryBtn} onPress={() => void runRecognition()}>
+              <Text style={styles.primaryBtnText}>重试识别</Text>
+            </Pressable>
+            <Pressable style={styles.ghostBtn} onPress={() => setShowCrop(true)}>
+              <Text style={styles.ghostBtnText}>手动框选局部区域</Text>
+            </Pressable>
+          </>
+        )}
         <Pressable style={styles.ghostBtn} onPress={onDone}>
           <Text style={styles.ghostBtnText}>返回首页</Text>
         </Pressable>
+        <CropModalHost
+          visible={showCrop}
+          imageUri={imageUri}
+          imageWidth={imageDims.w}
+          imageHeight={imageDims.h}
+          onCancel={() => setShowCrop(false)}
+          onConfirm={(rect) => {
+            setShowCrop(false);
+            void runRecognition({ crop: rect });
+          }}
+        />
       </View>
     );
   }
@@ -278,6 +487,9 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
       <View style={styles.center}>
         <Text style={styles.doneTitle}>入库完成</Text>
         <Text style={styles.centerText}>成功 {insertResult?.ok ?? 0} 题</Text>
+        {(insertResult?.dup ?? 0) > 0 && (
+          <Text style={styles.centerHint}>跳过 {insertResult?.dup} 题（题库中已存在相同题干）</Text>
+        )}
         {(insertResult?.failed.length ?? 0) > 0 && (
           <Text style={styles.errorText}>失败 {insertResult?.failed.length} 题：{insertResult?.failed.join('\n')}</Text>
         )}
@@ -382,6 +594,19 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
       </Modal>
     </View>
   );
+}
+
+/** 错误态下的框选宿主（仅当有图时可用） */
+function CropModalHost(props: {
+  visible: boolean;
+  imageUri: string;
+  imageWidth: number;
+  imageHeight: number;
+  onCancel: () => void;
+  onConfirm: (rect: CropRect) => void;
+}) {
+  if (!props.imageUri || !props.imageWidth || !props.imageHeight) return null;
+  return <CropModal {...props} />;
 }
 
 const styles = StyleSheet.create({

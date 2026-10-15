@@ -161,6 +161,14 @@ export async function getPagesByBatch(db: SQLiteDatabase, batchId: string): Prom
   return db.getAllAsync<ImportPageRow>('SELECT * FROM import_pages WHERE batch_id = ? ORDER BY page_no, id', batchId);
 }
 
+/** 重识别前清理该页未落库的旧草稿（已入库/已丢弃的不动） */
+export async function deleteDraftItemsByPage(db: SQLiteDatabase, pageId: string): Promise<void> {
+  await db.runAsync(
+    "DELETE FROM import_items WHERE page_id = ? AND status IN ('draft','needs_review','approved_for_insert')",
+    pageId,
+  );
+}
+
 export async function getUnfinishedBatches(db: SQLiteDatabase): Promise<ImportBatchRow[]> {
   return db.getAllAsync<ImportBatchRow>(
     "SELECT * FROM import_batches WHERE status IN ('queued','running','paused') ORDER BY created_at DESC",

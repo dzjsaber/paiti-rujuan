@@ -16,7 +16,8 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 
 type Screen =
   | { name: 'home' }
-  | { name: 'review'; params: ReviewParams }
+  | { name: 'review'; mode: 'new'; params: ReviewParams }
+  | { name: 'review'; mode: 'resume'; batchId: string }
   | { name: 'settings' }
   | { name: 'selftest' };
 
@@ -75,11 +76,12 @@ export default function App() {
         <HomeScreen
           key={homeKey}
           db={db}
-          onOpenReview={(p) => setScreen({ name: 'review', params: p })}
+          onOpenReview={(p) => setScreen({ name: 'review', mode: 'new', params: p })}
           onOpenSettings={() => setScreen({ name: 'settings' })}
+          onResume={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
         />
       )}
-      {screen.name === 'review' && (
+      {screen.name === 'review' && screen.mode === 'new' && (
         <ReviewScreen
           db={db}
           llm={llm}
@@ -89,6 +91,9 @@ export default function App() {
           sourceType={screen.params.sourceType}
           onDone={goHome}
         />
+      )}
+      {screen.name === 'review' && screen.mode === 'resume' && (
+        <ReviewScreen db={db} llm={llm} resumeBatchId={screen.batchId} onDone={goHome} />
       )}
       {screen.name === 'settings' && (
         <SettingsScreen onBack={goHome} onOpenSelfTest={() => setScreen({ name: 'selftest' })} />

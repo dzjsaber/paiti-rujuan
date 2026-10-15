@@ -20,6 +20,20 @@ export interface PreparedImage {
   base64: string;
 }
 
+export interface CropRect {
+  originX: number;
+  originY: number;
+  width: number;
+  height: number;
+}
+
+export interface CroppedImage {
+  uri: string;
+  width: number;
+  height: number;
+  base64: string;
+}
+
 export async function prepareImageForRecognition(
   uri: string,
   width?: number,
@@ -50,4 +64,45 @@ export async function prepareImageForRecognition(
     throw new Error(`压缩后图片仍超过 5MB（${(bytes / 1024 / 1024).toFixed(1)}MB），请重拍或降低分辨率`);
   }
   return { uri: dest.uri, width: rendered.width, height: rendered.height, bytes, base64 };
+}
+
+/** 读取私有目录图片为 Base64（切半/框选后复用） */
+export async function readImageBase64(uri: string): Promise<string> {
+  return new File(uri).base64();
+}
+
+/** 按原图像素坐标裁切并保存为 JPEG，返回新文件与 Base64 */
+export async function cropImage(uri: string, rect: CropRect): Promise<CroppedImage> {
+  const ctx = ImageManipulator.manipulate(uri);
+  ctx.crop({
+    originX: Math.max(0, Math.round(rect.originX)),
+    originY: Math.max(0, Math.round(rect.originY)),
+    width: Math.max(1, Math.round(rect.width)),
+    height: Math.max(1, Math.round(rect.height)),
+  });
+  const ref = await ctx.renderAsync();
+  const rendered = await ref.saveAsync({ compress: JPEG_QUALITY, format: SaveFormat.JPEG });
+  const dir = new Directory(Paths.document, 'imports');
+  try {
+    dir.create({ idempotent: true });
+  } catch {
+    /* 目录已存在 */
+  }
+  const dest = new File(dir, `${newId('crop')}.jpg`);
+  await new File(rendered.uri).copy(dest);
+  const base64 = await dest.base64();
+  return { uri: dest.uri, width: rendered.width, height: rendered.height, base64 };
+}
+
+/** 生成上下半页（整页识别失败后的第一层兜底） */
+export async function makeHalves(prepared: PreparedImage): Promise<CroppedImage[]> {
+  const halfH = Math.floor(prepared.height / 2);
+  const top = await cropImage(prepared.uri, { originX: 0, originY: 0, width: prepared.width, height: halfH });
+  const bottom = await cropImage(prepared.uri, {
+    originX: 0,
+    originY: halfH,
+    width: prepared.width,
+    height: prepared.height - halfH,
+  });
+  return [top, bottom];
 }
