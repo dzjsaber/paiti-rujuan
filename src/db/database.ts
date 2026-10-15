@@ -35,12 +35,16 @@ export async function migrate(db: SQLiteDatabase): Promise<number> {
 export async function openAppDatabase(db: SQLiteDatabase): Promise<SQLiteDatabase> {
   await db.execAsync('PRAGMA foreign_keys = ON');
   await migrate(db);
-  await db.runAsync(
-    'INSERT INTO banks(id, name, created_at) VALUES(?, ?, ?) ON CONFLICT(id) DO NOTHING',
-    DEFAULT_BANK_ID,
-    '默认题库',
-    new Date().toISOString(),
-  );
+  // 首次打开（或用户删光了所有题库）时建默认题库；用户主动删除默认题库后不复活
+  const c = await db.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM banks');
+  if ((c?.c ?? 0) === 0) {
+    await db.runAsync(
+      'INSERT INTO banks(id, name, created_at) VALUES(?, ?, ?)',
+      DEFAULT_BANK_ID,
+      '默认题库',
+      new Date().toISOString(),
+    );
+  }
   return db;
 }
 

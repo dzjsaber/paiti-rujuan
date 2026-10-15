@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { BankMaterialPicker } from '../components/BankMaterialPicker';
 import { CropModal } from '../components/CropModal';
 import type { QuestionAnswer, QuestionDraft, ReviewStatus } from '../core/models';
 import { normalizeStem } from '../core/dedupe';
@@ -25,7 +26,7 @@ import { f2ValidatePage, f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer, normalizeOptions } from '../core/validation/normalize';
 import { DEFAULT_BANK_ID } from '../db/database';
 import { indexQuestion } from '../db/fts';
-import { createBank, listBanks, type BankSummary } from '../db/repo_banks';
+import { createBank, listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_banks';
 import {
   createBatch,
   createPage,
@@ -125,6 +126,9 @@ export function ReviewScreen({
   const [targetBankId, setTargetBankId] = useState<string | null>(null);
   const [showBankPicker, setShowBankPicker] = useState(false);
   const [newBankName, setNewBankName] = useState('');
+  const [showMaterialPicker, setShowMaterialPicker] = useState(false);
+  const [boundCount, setBoundCount] = useState(0);
+  const [boundTick, setBoundTick] = useState(0);
 
   const itemsRef = useRef<ReviewItem[]>([]);
   const batchRef = useRef<string | null>(null);
@@ -153,6 +157,13 @@ export function ReviewScreen({
   useEffect(() => {
     void loadBanks();
   }, [loadBanks]);
+
+  useEffect(() => {
+    if (!targetBankId) return;
+    void listBankMaterialIds(db, targetBankId)
+      .then((ids) => setBoundCount(ids.length))
+      .catch(() => setBoundCount(0));
+  }, [db, targetBankId, boundTick]);
 
   const recognizeOnce = useCallback(
     async (engine: ZhipuVisionEngine, b64: string): Promise<RecognizeOutcome> => {
@@ -803,6 +814,14 @@ export function ReviewScreen({
           </Text>
           <Text style={styles.bankPickSwitch}>切换 ▾</Text>
         </Pressable>
+        <Pressable style={styles.bankPickRow} onPress={() => setShowMaterialPicker(true)}>
+          <Text style={styles.bankPickLabel} numberOfLines={1}>
+            教材：
+            <Text style={styles.bankPickName}>{boundCount > 0 ? `已绑定 ${boundCount} 本` : '未绑定'}</Text>
+            <Text style={styles.materialHint}>{boundCount > 0 ? '（讲解只依据绑定教材）' : '（可选）'}</Text>
+          </Text>
+          <Text style={styles.bankPickSwitch}>设置 ▾</Text>
+        </Pressable>
         <View style={styles.footerTools}>
           <Pressable style={styles.smallGhost} onPress={() => toggleAll(true)}>
             <Text style={styles.smallGhostText}>全选</Text>
@@ -905,6 +924,15 @@ export function ReviewScreen({
           </View>
         </View>
       </Modal>
+
+      <BankMaterialPicker
+        db={db}
+        visible={showMaterialPicker}
+        bankId={targetBankId}
+        bankName={targetBankName}
+        onClose={() => setShowMaterialPicker(false)}
+        onSaved={() => setBoundTick((x) => x + 1)}
+      />
     </View>
   );
 }
@@ -1002,6 +1030,7 @@ const styles = StyleSheet.create({
   bankPickLabel: { flex: 1, fontSize: 13, color: '#66707f' },
   bankPickName: { color: '#1c5cd6', fontWeight: '700' },
   bankPickSwitch: { marginLeft: 10, fontSize: 13, color: '#31518a', fontWeight: '700' },
+  materialHint: { color: '#98a2b3' },
   sheetBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: '#fff',

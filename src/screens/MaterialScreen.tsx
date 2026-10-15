@@ -272,7 +272,10 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
           <Text style={styles.importBtn}>＋ 导入</Text>
         </Pressable>
       </View>
-      <Text style={styles.hint}>教材用于 AI 讲解的知识引用（后续功能）。删除教材会同时清理分段、索引与原文件。</Text>
+      <Text style={styles.hint}>
+        教材用于 AI 讲解的引用。在题库管理或入库确认页可为题库绑定教材（绑定后讲解只依据绑定教材，未绑定则检索全部教材）。
+        删除教材会同时清理分段、索引与原文件。
+      </Text>
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {materials.length === 0 && (

@@ -79,15 +79,20 @@ export interface MaterialHit {
 /**
  * 教材检索（F9b）：题目文本 → 片段 OR 查询 → bm25 排序取前 N。
  * 命中不足时不凑数（返回实际命中数）；无命中返回空数组（调用方降级 F7）。
+ * materialIds 传入时只在这些教材内检索（题库已绑定教材的场景）。
  */
 export async function searchMaterialsSmart(
   db: SQLiteDatabase,
   questionText: string,
   limit = 5,
+  materialIds?: string[],
 ): Promise<MaterialHit[]> {
   const terms = buildSearchTerms(questionText);
   if (terms.length === 0) return [];
   const query = terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' OR ');
+  const filter = materialIds && materialIds.length > 0
+    ? ` AND c.material_id IN (${materialIds.map(() => '?').join(',')})`
+    : '';
   const rows = await db.getAllAsync<{
     ref_id: string;
     content: string;
@@ -98,10 +103,11 @@ export async function searchMaterialsSmart(
        FROM materials_fts f
        JOIN material_chunks c ON c.id = f.ref_id
        JOIN materials m ON m.id = c.material_id
-      WHERE materials_fts MATCH ?
+      WHERE materials_fts MATCH ?${filter}
       ORDER BY bm25(materials_fts)
       LIMIT ?`,
     query,
+    ...(materialIds ?? []),
     limit,
   );
   return rows.map((r) => ({

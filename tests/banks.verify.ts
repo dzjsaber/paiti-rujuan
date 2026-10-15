@@ -5,9 +5,17 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { searchMaterialsSmart } from '../src/db/fts';
 import { MIGRATIONS } from '../src/db/schema';
 import { countAllQuestions } from '../src/db/repo_questions';
-import { createBank, listBanks } from '../src/db/repo_banks';
+import {
+  createBank,
+  deleteBank,
+  listBankMaterialIds,
+  listBanks,
+  renameBank,
+  setBankMaterials,
+} from '../src/db/repo_banks';
 import { countWrongBook, listPracticeQuestions, listWrongBook } from '../src/db/repo_practice';
 import { restoreBackup, validateBackup, type BackupFile } from '../src/db/backup';
 
@@ -133,6 +141,73 @@ async function main(): Promise<void> {
     assert((await countWrongBook(db)) === 2, '全局错题计数应为 2');
     const wrongRows = await listPracticeQuestions(db, 'wrong');
     assert(wrongRows.length === 2, '错题重刷应跨库取题');
+  });
+
+  await check('重命名题库：列表反映新名字', async () => {
+    const db = freshDb();
+    const id = await createBank(db, '旧名字');
+    await renameBank(db, id, '新名字');
+    const list = await listBanks(db);
+    assert(list.find((b) => b.id === id)?.name === '新名字', '应显示新名字');
+  });
+
+  await check('删除题库：题目/错题/记录/FTS 级联清理，其他库不受影响', async () => {
+    const db = freshDb();
+    const b2 = await createBank(db, '库二');
+    const q1 = await insertQuestionRow(db, b2, '库二题 1');
+    await db.runAsync('INSERT INTO questions_fts(stem, ref_id) VALUES(?,?)', '库二题 1', q1);
+    await db.runAsync("INSERT INTO wrong_book(question_id, wrong_count, last_wrong_at) VALUES(?,1,'2026-01-03')", q1);
+    await db.runAsync("INSERT INTO practice_log(question_id, is_correct, answered_at) VALUES(?,1,'2026-01-03')", q1);
+    const keep = await insertQuestionRow(db, 'bank_default', '默认库题 1');
+    await db.runAsync('INSERT INTO questions_fts(stem, ref_id) VALUES(?,?)', '默认库题 1', keep);
+
+    await deleteBank(db, b2);
+
+    assert((await listBanks(db)).every((b) => b.id !== b2), '库应被删除');
+    assert((await countAllQuestions(db)) === 1, '该库题目应级联删除');
+    const fts = await db.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM questions_fts');
+    assert(fts?.c === 1, `FTS 应只剩其他库的题目，实际 ${fts?.c}`);
+    const wb = await db.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM wrong_book');
+    assert(wb?.c === 0, '错题记录应级联清理');
+    const pl = await db.getFirstAsync<{ c: number }>('SELECT COUNT(*) AS c FROM practice_log');
+    assert(pl?.c === 0, '做题记录应级联清理');
+  });
+
+  await check('题库绑定教材：全量替换 + 查询 + 删除教材级联解绑', async () => {
+    const db = freshDb();
+    const b = await createBank(db, '绑定测试库');
+    await db.runAsync("INSERT INTO materials(id,name,file_path,created_at) VALUES('m1','教材一',NULL,'2026-01-01')");
+    await db.runAsync("INSERT INTO materials(id,name,file_path,created_at) VALUES('m2','教材二',NULL,'2026-01-02')");
+    await setBankMaterials(db, b, ['m1', 'm2']);
+    assert((await listBankMaterialIds(db, b)).length === 2, '应绑定 2 本');
+    await setBankMaterials(db, b, ['m2']);
+    const ids = await listBankMaterialIds(db, b);
+    assert(ids.length === 1 && ids[0] === 'm2', '全量替换应只剩 m2');
+    await setBankMaterials(db, b, []);
+    assert((await listBankMaterialIds(db, b)).length === 0, '清空绑定');
+    await setBankMaterials(db, b, ['m1', 'm2']);
+    await db.runAsync("DELETE FROM materials WHERE id = 'm1'");
+    const after = await listBankMaterialIds(db, b);
+    assert(after.length === 1 && after[0] === 'm2', '删除教材应级联解绑');
+  });
+
+  await check('教材检索按绑定过滤：只返回勾选教材的片段', async () => {
+    const db = freshDb();
+    await db.runAsync("INSERT INTO materials(id,name,file_path,created_at) VALUES('m1','教材一',NULL,'2026-01-01')");
+    await db.runAsync("INSERT INTO materials(id,name,file_path,created_at) VALUES('m2','教材二',NULL,'2026-01-02')");
+    await db.runAsync(
+      "INSERT INTO material_chunks(id,material_id,content,source_loc,created_at) VALUES('c1','m1','8051单片机的中断系统由中断源和中断控制寄存器组成','字符 1-30','2026-01-01')",
+    );
+    await db.runAsync(
+      "INSERT INTO material_chunks(id,material_id,content,source_loc,created_at) VALUES('c2','m2','8051单片机中断响应过程包括保护断点与转向中断服务程序','字符 1-30','2026-01-02')",
+    );
+    await db.runAsync("INSERT INTO materials_fts(content,ref_id) VALUES('8051单片机的中断系统由中断源和中断控制寄存器组成','c1')");
+    await db.runAsync("INSERT INTO materials_fts(content,ref_id) VALUES('8051单片机中断响应过程包括保护断点与转向中断服务程序','c2')");
+    const all = await searchMaterialsSmart(db, '8051单片机', 5);
+    assert(all.length === 2, `不过滤应命中 2 段，实际 ${all.length}`);
+    const only = await searchMaterialsSmart(db, '8051单片机', 5, ['m2']);
+    assert(only.length === 1 && only[0].materialName === '教材二', '应按教材过滤');
+    assert((await searchMaterialsSmart(db, '8051单片机', 5, ['m1'])).length === 1, 'm1 应只命中 1 段');
   });
 
   await check('恢复 v1 备份：题目引用的库不存在时兜底建库，题不丢', async () => {

@@ -21,6 +21,8 @@ export interface LLMCallOptions {
   timeoutMs?: number;
   maxRetries?: number;
   retryDelayMs?: number;
+  /** 智谱联网搜索工具（仅智谱端点支持；其他提供商请勿开启） */
+  webSearch?: boolean;
   /** 覆盖默认端点与密钥（多提供商支持；缺省用构造器注入的智谱配置） */
   endpoint?: { url: string; apiKey: string };
 }
@@ -82,6 +84,7 @@ export class LLMService {
       timeoutMs: opts.timeoutMs ?? 60000,
       maxRetries: opts.maxRetries,
       retryDelayMs: opts.retryDelayMs,
+      webSearch: opts.webSearch,
     });
   }
 
@@ -108,6 +111,8 @@ export class LLMService {
       temperature: opts.temperature,
       max_tokens: opts.maxTokens,
       ...(opts.thinking ? { thinking: { type: opts.thinking } } : {}),
+      // 智谱联网搜索（服务端执行，模型自动决定是否搜索）
+      ...(opts.webSearch ? { tools: [{ type: 'web_search', web_search: { enable: true } }] } : {}),
     };
 
     let attempts = 0;

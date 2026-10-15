@@ -187,6 +187,17 @@ CREATE INDEX IF NOT EXISTS idx_material_images ON material_images(material_id);`
   created_at TEXT NOT NULL
 );`,
   },
+  {
+    version: 6,
+    name: '006_bank_materials',
+    // 题库绑定教材（多对多，非强制）：绑定时 AI 讲解只依据这些教材检索
+    sql: `CREATE TABLE IF NOT EXISTS bank_materials (
+  bank_id TEXT NOT NULL REFERENCES banks(id) ON DELETE CASCADE,
+  material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (bank_id, material_id)
+);`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

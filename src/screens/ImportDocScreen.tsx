@@ -1,13 +1,10 @@
 /**
- * F8 文档导入：选择文件 → 本地提取 → 隐私确认 → 云端结构化切题 → 确认页入库。
- * 隐私要求（§F8）：向云端发送任何文本前必须明确告知"发送内容/用途/服务商/取消方式"，
- * 并取得本次操作确认；拒绝云端处理时提供"仅本地提取"路径（展示文本供手动整理），
- * 不得暗中发送。分块切题复用 chunker（题目边界优先），答案表映射为本地确定性逻辑。
+ * F8 文档导入：选择文件 → 本地提取（预览可直接编辑修正）→ 云端结构化切题 → 确认页入库。
+ * 分块切题复用 chunker（题目边界优先），答案表映射为本地确定性逻辑。
  */
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Clipboard from 'expo-clipboard';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { buildDraftsWithF2 } from '../core/draftBuild';
 import type { ImportSourceType } from '../core/models';
@@ -20,7 +17,7 @@ import type { LLMService } from '../services/llm/LLMService';
 import { TEXT_MODEL } from '../services/llm/LLMService';
 import { parseModelText } from '../services/llm/ResponseParser';
 
-type Stage = 'pick' | 'extracting' | 'preview' | 'localOnly' | 'structuring' | 'error';
+type Stage = 'pick' | 'extracting' | 'preview' | 'structuring' | 'error';
 
 export interface ImportDocScreenProps {
   db: SQLiteDatabase;
@@ -42,6 +39,8 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
   const [stage, setStage] = useState<Stage>('pick');
   const [fileName, setFileName] = useState('');
   const [extract, setExtract] = useState<ExtractResult | null>(null);
+  /** 预览里用户可编辑的全文（切题使用编辑后的版本） */
+  const [editedText, setEditedText] = useState('');
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
   const cancelRef = useRef(false);
@@ -69,6 +68,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
       setStage('extracting');
       const r = await extractDocument(a.uri, a.name);
       setExtract(r);
+      setEditedText(r.text);
       setStage('preview');
     } catch (e) {
       setError(String((e as Error)?.message ?? e));
@@ -89,10 +89,14 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
 
   const startStructuring = useCallback(async () => {
     if (!extract) return;
+    if (!editedText.trim()) {
+      Alert.alert('文本为空', '请先修正提取文本再切题。');
+      return;
+    }
     setStage('structuring');
     cancelRef.current = false;
     try {
-      const text = extract.text;
+      const text = editedText;
       const chunks = chunkDocument(text);
       if (chunks.length === 0) throw new Error('文档中没有可处理的文本');
       const allDrafts: unknown[] = [];
@@ -147,7 +151,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
       setError(String((e as Error)?.message ?? e));
       setStage('error');
     }
-  }, [db, llm, extract, fileName, askKeep, onOpenReview]);
+  }, [db, llm, extract, editedText, fileName, askKeep, onOpenReview]);
 
   // ---------------------------------------------------------------- 渲染
   if (stage === 'pick') {
@@ -212,38 +216,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
     );
   }
 
-  if (stage === 'localOnly' && extract) {
-    return (
-      <View style={styles.page}>
-        <View style={styles.header}>
-          <Pressable onPress={() => setStage('preview')} hitSlop={8}>
-            <Text style={styles.back}>← 返回</Text>
-          </Pressable>
-          <Text style={styles.title}>本地提取结果</Text>
-          <View style={styles.spacer} />
-        </View>
-        <Text style={styles.localHint}>以下文本完全来自本地提取，未发送任何网络请求。可长按选择复制，手动整理成题目。</Text>
-        <ScrollView style={styles.previewBox}>
-          <Text style={styles.previewText} selectable>
-            {extract.text}
-          </Text>
-        </ScrollView>
-        <Pressable
-          style={styles.primaryBtnWide}
-          onPress={() => {
-            void (async () => {
-              await Clipboard.setStringAsync(extract.text);
-              Alert.alert('已复制', '全文已复制到剪贴板，可粘贴到任意位置整理。');
-            })();
-          }}
-        >
-          <Text style={styles.primaryBtnText}>复制全文</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  // preview
+  // preview：文本可直接编辑修正，切题使用编辑后的全文
   return (
     <View style={styles.page}>
       <View style={styles.header}>
@@ -254,7 +227,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
         <View style={styles.spacer} />
       </View>
       <Text style={styles.fileName}>
-        {fileName} · {extract ? `${extract.text.length} 字符` : ''}
+        {fileName} · {editedText.length} 字符
         {extract?.pageCount ? ` · ${extract.pageCount} 页` : ''}
       </Text>
       {(extract?.warnings ?? []).map((w, i) => (
@@ -262,17 +235,19 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           ⚠ {w}
         </Text>
       ))}
+      <Text style={styles.editHint}>可直接点击下方文本修改（修正错字、删掉页眉页脚等），切题会使用你修改后的全文。</Text>
       <ScrollView style={styles.previewBox}>
-        <Text style={styles.previewText}>
-          {(extract?.text ?? '').slice(0, 3000)}
-          {(extract?.text.length ?? 0) > 3000 ? '\n\n…（仅预览前 3000 字符，处理时会使用全文）' : ''}
-        </Text>
+        <TextInput
+          style={styles.previewInput}
+          value={editedText}
+          onChangeText={setEditedText}
+          multiline
+          scrollEnabled={false}
+          textAlignVertical="top"
+        />
       </ScrollView>
       <Pressable style={styles.primaryBtnWide} onPress={() => void startStructuring()}>
         <Text style={styles.primaryBtnText}>云端结构化切题</Text>
-      </Pressable>
-      <Pressable style={styles.ghostBtnWide} onPress={() => setStage('localOnly')}>
-        <Text style={styles.ghostBtnText}>仅本地提取（不联网，手动整理）</Text>
       </Pressable>
     </View>
   );
@@ -291,13 +266,12 @@ const styles = StyleSheet.create({
   errorText: { marginTop: 12, fontSize: 14, color: '#444', lineHeight: 21, textAlign: 'center' },
   fileName: { marginTop: 12, fontSize: 13, color: '#66707f' },
   warn: { marginTop: 8, fontSize: 12, color: '#b8860b', lineHeight: 18 },
+  editHint: { marginTop: 10, fontSize: 12, color: '#8a94a6', lineHeight: 18 },
   previewBox: { flex: 1, marginTop: 12, backgroundColor: '#fff', borderRadius: 10, padding: 12 },
-  previewText: { fontSize: 13, color: '#333', lineHeight: 20 },
-  localHint: { marginTop: 12, fontSize: 12, color: '#66707f', lineHeight: 18 },
+  previewInput: { fontSize: 13, color: '#333', lineHeight: 20, padding: 0, minHeight: 160 },
   primaryBtn: { marginTop: 28, backgroundColor: '#1c5cd6', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 44 },
   primaryBtnWide: { marginTop: 14, backgroundColor: '#1c5cd6', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   ghostBtn: { marginTop: 14, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 44, borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
-  ghostBtnWide: { marginTop: 10, borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
   ghostBtnText: { color: '#31518a', fontSize: 14 },
 });

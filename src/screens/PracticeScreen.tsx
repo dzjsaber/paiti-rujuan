@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { searchMaterialsSmart } from '../db/fts';
-import { listBanks, type BankSummary } from '../db/repo_banks';
+import { listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_banks';
 import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
 import { setQuestionAnalysis, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
@@ -20,6 +20,7 @@ import {
   getCustomConfig,
   getDeepseekKey,
   resolveExplainTarget,
+  ZHIPU_URL,
   type ExplainProviderId,
 } from '../services/llm/providers';
 import { getApiKey } from '../services/apiKey';
@@ -36,6 +37,7 @@ type Stage = 'pickBank' | 'loading' | 'answering' | 'judged' | 'finished' | 'emp
 
 interface ParsedQuestion {
   id: string;
+  bankId: string;
   type: string;
   stem: string;
   options: { id: string; text: string }[];
@@ -56,6 +58,7 @@ function parseRow(row: QuestionRow): ParsedQuestion {
   else if (typeof answer === 'string') answerText = answer;
   return {
     id: row.id,
+    bankId: row.bank_id,
     type: row.type,
     stem: row.stem,
     options: Array.isArray(options) ? options : [],
@@ -109,6 +112,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     error: string | null;
     evidence: RagEvidence[];
     usedLibrary: boolean;
+    /** 题库已绑定教材但检索无命中：等待用户确认是否降级（联网/模型知识） */
+    noEvidence: boolean;
+    /** 非空表示本次讲解未依据教材（用户确认后的降级方式） */
+    fallback: 'web' | 'model' | null;
   } | null>(null);
   const [adopted, setAdopted] = useState(false);
   const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
@@ -212,43 +219,101 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     next();
   }, [next]);
 
-  /** F7/F9b：AI 讲解——优先用教材依据（RAG），无有效命中时降级为普通讲解 */
+  /**
+   * F7/F9b：AI 讲解。
+   * 题库绑定了教材时只检索绑定教材，且必须依据教材回答；检索无命中不自动降级，
+   * 由用户确认后走联网/模型知识（见 onFallbackPress）。未绑定教材则维持"命中用教材、未命中普通讲解"。
+   */
   const runExplain = useCallback(
     async (target: { url: string; model: string; apiKey: string }) => {
       if (!q) return;
-    setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false });
-    try {
-      const input = { stem: q.stem, options: q.options, answerText: q.answerText };
-      const hits = await searchMaterialsSmart(db, `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`, 5);
-      const evidence: RagEvidence[] = hits.map((h, i) => ({
-        index: i + 1,
-        text: h.text.slice(0, 300),
-        source: `${h.materialName}${h.sourceLoc ? ` · ${h.sourceLoc}` : ''}`,
-      }));
-      const prompt = evidence.length > 0 ? renderRagPrompt(input, evidence) : renderExplainPrompt(input);
-      const r = await llm.complete(prompt, {
-        model: target.model,
-        endpoint: { url: target.url, apiKey: target.apiKey },
-        temperature: 0.3,
-        maxTokens: 1024,
-        timeoutMs: 60000,
-      });
-      if (!r.ok || !r.content || !r.content.trim()) {
+      setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null });
+      try {
+        const input = { stem: q.stem, options: q.options, answerText: q.answerText };
+        const boundIds = await listBankMaterialIds(db, q.bankId);
+        const hits = await searchMaterialsSmart(
+          db,
+          `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`,
+          5,
+          boundIds.length > 0 ? boundIds : undefined,
+        );
+        const evidence: RagEvidence[] = hits.map((h, i) => ({
+          index: i + 1,
+          text: h.text.slice(0, 300),
+          source: `${h.materialName}${h.sourceLoc ? ` · ${h.sourceLoc}` : ''}`,
+        }));
+        if (evidence.length === 0 && boundIds.length > 0) {
+          setExplain({ loading: false, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: true, fallback: null });
+          return;
+        }
+        const prompt = evidence.length > 0 ? renderRagPrompt(input, evidence) : renderExplainPrompt(input);
+        const r = await llm.complete(prompt, {
+          model: target.model,
+          endpoint: { url: target.url, apiKey: target.apiKey },
+          temperature: 0.3,
+          maxTokens: 1024,
+          timeoutMs: 60000,
+        });
+        if (!r.ok || !r.content || !r.content.trim()) {
+          setExplain({
+            loading: false,
+            text: null,
+            error: r.error?.userMessage ?? '生成失败',
+            evidence: [],
+            usedLibrary: evidence.length > 0,
+            noEvidence: false,
+            fallback: null,
+          });
+          return;
+        }
+        setExplain({
+          loading: false,
+          text: r.content.trim(),
+          error: null,
+          evidence,
+          usedLibrary: evidence.length > 0,
+          noEvidence: false,
+          fallback: null,
+        });
+      } catch (e) {
         setExplain({
           loading: false,
           text: null,
-          error: r.error?.userMessage ?? '生成失败',
+          error: String((e as Error)?.message ?? e),
           evidence: [],
-          usedLibrary: evidence.length > 0,
+          usedLibrary: false,
+          noEvidence: false,
+          fallback: null,
         });
-        return;
       }
-      setExplain({ loading: false, text: r.content.trim(), error: null, evidence, usedLibrary: evidence.length > 0 });
-    } catch (e) {
-      setExplain({ loading: false, text: null, error: String((e as Error)?.message ?? e), evidence: [], usedLibrary: false });
-    }
     },
     [db, llm, q],
+  );
+
+  /** 教材未命中、经用户确认后的降级讲解：智谱联网搜索 / 其他提供商模型知识 */
+  const runFallbackExplain = useCallback(
+    async (target: { url: string; model: string; apiKey: string }, mode: 'web' | 'model') => {
+      if (!q) return;
+      setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+      try {
+        const r = await llm.complete(renderExplainPrompt({ stem: q.stem, options: q.options, answerText: q.answerText }), {
+          model: target.model,
+          endpoint: { url: target.url, apiKey: target.apiKey },
+          temperature: 0.3,
+          maxTokens: 1024,
+          timeoutMs: 90000,
+          webSearch: mode === 'web',
+        });
+        if (!r.ok || !r.content || !r.content.trim()) {
+          setExplain({ loading: false, text: null, error: r.error?.userMessage ?? '生成失败', evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+          return;
+        }
+        setExplain({ loading: false, text: r.content.trim(), error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+      } catch (e) {
+        setExplain({ loading: false, text: null, error: String((e as Error)?.message ?? e), evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+      }
+    },
+    [llm, q],
   );
 
   const feedbackWrong = useCallback(async () => {
@@ -272,14 +337,18 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     }
   }, [db, q, explain]);
 
-  /** 讲解入口：应用内生成 或 分享到豆包等外部应用 */
-  const onExplainPress = useCallback(async () => {
-    if (!q) return;
-    const target = resolveExplainTarget(explainProvider, {
+  const resolveTarget = useCallback(async () => {
+    return resolveExplainTarget(explainProvider, {
       zhipuApiKey: await getApiKey(),
       deepseekApiKey: await getDeepseekKey(),
       custom: await getCustomConfig(),
     });
+  }, [explainProvider]);
+
+  /** 讲解入口：应用内生成 或 分享到豆包等外部应用 */
+  const onExplainPress = useCallback(async () => {
+    if (!q) return;
+    const target = await resolveTarget();
     if (target.kind === 'missing_config') {
       Alert.alert('需要先配置', target.message);
       return;
@@ -297,7 +366,37 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       return;
     }
     await runExplain({ url: target.url, model: target.model, apiKey: target.apiKey });
-  }, [q, explainProvider, runExplain]);
+  }, [q, resolveTarget, runExplain]);
+
+  /** 教材未命中：用户确认后联网搜索（仅智谱端点）或改用模型知识 */
+  const onFallbackPress = useCallback(async () => {
+    const target = await resolveTarget();
+    if (target.kind !== 'api') {
+      Alert.alert(
+        '无法在应用内讲解',
+        target.kind === 'missing_config' ? target.message : '当前为分享模式，请先切换到应用内讲解。',
+      );
+      return;
+    }
+    const canWeb = target.url === ZHIPU_URL;
+    Alert.alert(
+      '教材中未找到依据',
+      canWeb
+        ? '是否改用联网搜索回答？将额外消耗智谱额度，回答不再依据教材。'
+        : '是否改用模型自身知识回答？回答不再依据教材，可能不准确。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: canWeb ? '联网搜索' : '用模型知识回答',
+          onPress: () =>
+            void runFallbackExplain(
+              { url: target.url, model: target.model, apiKey: target.apiKey },
+              canWeb ? 'web' : 'model',
+            ),
+        },
+      ],
+    );
+  }, [resolveTarget, runFallbackExplain]);
 
   if (stage === 'pickBank') {
     return (
@@ -454,6 +553,18 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 <Text style={styles.explainLoadingText}>正在生成讲解…</Text>
               </View>
             )}
+            {explain?.noEvidence && (
+              <>
+                <Text style={styles.warnText}>当前导入教材未覆盖该知识点。</Text>
+                <Pressable style={styles.explainBtn} onPress={() => void onFallbackPress()}>
+                  <Text style={styles.explainBtnText}>
+                    {explainProvider === 'zhipu_free' || explainProvider === 'zhipu_pro'
+                      ? '联网搜索答案'
+                      : '用模型知识回答'}
+                  </Text>
+                </Pressable>
+              </>
+            )}
             {explain?.error ? (
               <>
                 <Text style={styles.explainError}>讲解生成失败：{explain.error}</Text>
@@ -479,10 +590,16 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                       </View>
                     ))}
                   </View>
-                ) : (
+                ) : explain.fallback ? null : (
                   <Text style={styles.noLibrary}>（未引用教材：教材库为空或没有命中内容）</Text>
                 )}
-                <Text style={styles.aiWarn}>AI 生成内容，仅供参考</Text>
+                {explain.fallback ? (
+                  <Text style={styles.aiWarn}>
+                    未依据教材（{explain.fallback === 'web' ? '联网搜索结果' : '模型自身知识'}），仅供参考
+                  </Text>
+                ) : (
+                  <Text style={styles.aiWarn}>AI 生成内容，仅供参考</Text>
+                )}
                 <View style={styles.explainActions}>
                   <Pressable style={styles.smallBtn} onPress={() => void feedbackWrong()}>
                     <Text style={styles.smallBtnText}>反馈有误</Text>

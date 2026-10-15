@@ -1,5 +1,5 @@
 /**
- * 题库仓库层（多库）：列表（含题目数）与新建。
+ * 题库仓库层（多库）：列表（含题目数）、新建/重命名/删除、教材绑定。
  * banks 表自 V1 就在（默认题库 id = bank_default），本期开放多库使用。
  */
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -31,4 +31,47 @@ export async function createBank(db: SQLiteDatabase, name: string): Promise<stri
     new Date().toISOString(),
   );
   return id;
+}
+
+export async function renameBank(db: SQLiteDatabase, id: string, name: string): Promise<void> {
+  await db.runAsync('UPDATE banks SET name = ? WHERE id = ?', name.trim(), id);
+}
+
+/**
+ * 删除题库：题目随外键级联（连同错题本、做题记录、教材绑定）；
+ * questions_fts 非外键表，需先按库内题目清理（应用层维护索引的既有约定）。
+ */
+export async function deleteBank(db: SQLiteDatabase, id: string): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM questions_fts WHERE ref_id IN (SELECT id FROM questions WHERE bank_id = ?)', id);
+    await db.runAsync('DELETE FROM banks WHERE id = ?', id);
+  });
+}
+
+export async function listBankMaterialIds(db: SQLiteDatabase, bankId: string): Promise<string[]> {
+  const rows = await db.getAllAsync<{ material_id: string }>(
+    'SELECT material_id FROM bank_materials WHERE bank_id = ? ORDER BY created_at, material_id',
+    bankId,
+  );
+  return rows.map((r) => r.material_id);
+}
+
+/** 全量替换题库的教材绑定（弹层保存语义） */
+export async function setBankMaterials(
+  db: SQLiteDatabase,
+  bankId: string,
+  materialIds: string[],
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM bank_materials WHERE bank_id = ?', bankId);
+    for (const mid of materialIds) {
+      await db.runAsync(
+        'INSERT OR IGNORE INTO bank_materials(bank_id, material_id, created_at) VALUES(?,?,?)',
+        bankId,
+        mid,
+        now,
+      );
+    }
+  });
 }

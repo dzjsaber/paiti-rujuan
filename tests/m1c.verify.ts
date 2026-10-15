@@ -125,6 +125,22 @@ async function main(): Promise<void> {
     assert(r.attempts === 1, '应一次成功');
   });
 
+  await check('webSearch：请求体带智谱联网搜索工具参数（默认不带）', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl: FetchLike = async (_input, init) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return jsonResponse(200, { choices: [{ message: { content: 'ok' } }] });
+    };
+    const svc = new LLMService(async () => 'k', fetchImpl);
+    await svc.complete('hi', { retryDelayMs: 0 });
+    await svc.complete('hi', { retryDelayMs: 0, webSearch: true });
+    assert(bodies.length === 2, '应发起两次请求');
+    assert(!('tools' in bodies[0]), '默认请求不应带 tools');
+    const tools = bodies[1].tools as { type: string; web_search?: { enable?: boolean } }[] | undefined;
+    assert(Array.isArray(tools) && tools[0]?.type === 'web_search', '应带 web_search 工具');
+    assert(tools?.[0]?.web_search?.enable === true, 'enable 应为 true');
+  });
+
   await check('1305 限流：重试 1 次后失败，attempts=2 且可重试标记保留', async () => {
     let calls = 0;
     const fetchImpl: FetchLike = async () => {

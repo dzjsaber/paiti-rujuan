@@ -5,10 +5,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { BankMaterialPicker } from '../components/BankMaterialPicker';
 import type { QuestionDraft } from '../core/models';
 import { f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer } from '../core/validation/normalize';
-import { listBanks, type BankSummary } from '../db/repo_banks';
+import { deleteBank, listBankMaterialIds, listBanks, renameBank, type BankSummary } from '../db/repo_banks';
 import {
   deleteQuestion,
   listQuestions,
@@ -46,6 +47,9 @@ function typeShort(t: string): string {
 export function BankScreen({ db, onBack }: BankScreenProps) {
   const [banks, setBanks] = useState<BankSummary[]>([]);
   const [selected, setSelected] = useState<BankSummary | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [materialTarget, setMaterialTarget] = useState<{ id: string; name: string } | null>(null);
+  const [boundCount, setBoundCount] = useState(0);
   const [rows, setRows] = useState<QuestionRow[]>([]);
   const [filter, setFilter] = useState<'all' | 'noanswer'>('all');
   const [editing, setEditing] = useState<{ id: string; draft: QuestionDraft } | null>(null);
@@ -87,6 +91,64 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
     setSelected(null);
     void refreshBanks();
   }, [refreshBanks]);
+
+  const refreshBound = useCallback(async () => {
+    if (!selected) return;
+    try {
+      setBoundCount((await listBankMaterialIds(db, selected.id)).length);
+    } catch {
+      setBoundCount(0);
+    }
+  }, [db, selected]);
+
+  useEffect(() => {
+    void refreshBound();
+  }, [refreshBound]);
+
+  const confirmRename = useCallback(async () => {
+    if (!renaming) return;
+    const name = renaming.name.trim();
+    if (!name) {
+      Alert.alert('请输入题库名称');
+      return;
+    }
+    try {
+      await renameBank(db, renaming.id, name);
+      setRenaming(null);
+      await refreshBanks();
+    } catch (e) {
+      Alert.alert('重命名失败', String((e as Error)?.message ?? e));
+    }
+  }, [db, renaming, refreshBanks]);
+
+  const removeBank = useCallback(
+    (b: BankSummary) => {
+      Alert.alert(
+        `删除题库「${b.name}」？`,
+        b.count > 0
+          ? `库内 ${b.count} 道题目、相关错题与做题记录将一并删除，无法恢复。`
+          : '该题库没有题目。',
+        [
+          { text: '取消', style: 'cancel' },
+          {
+            text: '删除',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                try {
+                  await deleteBank(db, b.id);
+                  await refreshBanks();
+                } catch (e) {
+                  Alert.alert('删除失败', String((e as Error)?.message ?? e));
+                }
+              })();
+            },
+          },
+        ],
+      );
+    },
+    [db, refreshBanks],
+  );
 
   const openEdit = useCallback((row: QuestionRow) => {
     const d = rowToQuestion(row);
@@ -150,14 +212,40 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
         </View>
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
           {banks.length === 0 && <Text style={styles.empty}>还没有题库。</Text>}
-          {banks.map((b) => (
-            <Pressable key={b.id} style={styles.bankCard} onPress={() => openBank(b)}>
-              <Text style={styles.bankName} numberOfLines={1}>
-                {b.name}
-              </Text>
-              <Text style={styles.bankCount}>{b.count} 题</Text>
-            </Pressable>
-          ))}
+          {banks.map((b) =>
+            renaming?.id === b.id ? (
+              <View key={b.id} style={styles.bankCard}>
+                <TextInput
+                  style={styles.renameInput}
+                  value={renaming.name}
+                  onChangeText={(t) => setRenaming({ id: b.id, name: t })}
+                  autoFocus
+                  placeholder="题库名称"
+                />
+                <Pressable style={styles.renameSave} onPress={() => void confirmRename()}>
+                  <Text style={styles.renameSaveText}>保存</Text>
+                </Pressable>
+                <Pressable hitSlop={6} onPress={() => setRenaming(null)}>
+                  <Text style={styles.cardCtrl}>取消</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View key={b.id} style={styles.bankCard}>
+                <Pressable style={styles.bankMain} onPress={() => openBank(b)}>
+                  <Text style={styles.bankName} numberOfLines={1}>
+                    {b.name}
+                  </Text>
+                  <Text style={styles.bankCount}>{b.count} 题</Text>
+                </Pressable>
+                <Pressable hitSlop={6} onPress={() => setRenaming({ id: b.id, name: b.name })}>
+                  <Text style={styles.cardCtrl}>重命名</Text>
+                </Pressable>
+                <Pressable hitSlop={6} onPress={() => removeBank(b)} style={styles.cardDangerWrap}>
+                  <Text style={styles.cardDanger}>删除</Text>
+                </Pressable>
+              </View>
+            ),
+          )}
           {banks.length > 0 && (
             <Text style={styles.listHint}>点进题库可编辑题目、补充答案、删除题目。</Text>
           )}
@@ -235,6 +323,18 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
         <Text style={styles.count}>{rows.length} 题</Text>
       </View>
 
+      <Pressable
+        style={styles.bindRow}
+        onPress={() => setMaterialTarget({ id: selected.id, name: selected.name })}
+      >
+        <Text style={styles.bindLabel} numberOfLines={1}>
+          教材：
+          <Text style={styles.bindValue}>{boundCount > 0 ? `已绑定 ${boundCount} 本` : '未绑定'}</Text>
+          <Text style={styles.bindHint}>{boundCount > 0 ? '（讲解只依据绑定教材）' : '（可选，未绑定则检索全部教材）'}</Text>
+        </Text>
+        <Text style={styles.bindAction}>设置</Text>
+      </Pressable>
+
       <View style={styles.filterRow}>
         <Pressable style={[styles.chip, filter === 'all' && styles.chipOn]} onPress={() => setFilter('all')}>
           <Text style={[styles.chipText, filter === 'all' && styles.chipTextOn]}>全部 {rows.length}</Text>
@@ -265,6 +365,15 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
         ))}
         <View style={{ height: 24 }} />
       </ScrollView>
+
+      <BankMaterialPicker
+        db={db}
+        visible={!!materialTarget}
+        bankId={materialTarget?.id ?? null}
+        bankName={materialTarget?.name}
+        onClose={() => setMaterialTarget(null)}
+        onSaved={() => void refreshBound()}
+      />
     </View>
   );
 }
@@ -286,8 +395,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  bankName: { flex: 1, fontSize: 16, fontWeight: '700', color: '#222' },
-  bankCount: { marginLeft: 10, fontSize: 13, color: '#66707f' },
+  bankMain: { flex: 1, marginRight: 10 },
+  bankName: { fontSize: 16, fontWeight: '700', color: '#222' },
+  bankCount: { marginTop: 3, fontSize: 13, color: '#66707f' },
+  cardCtrl: { fontSize: 13, color: '#31518a', paddingVertical: 4 },
+  cardDangerWrap: { marginLeft: 14 },
+  cardDanger: { fontSize: 13, color: '#c0392b', paddingVertical: 4 },
+  renameInput: {
+    flex: 1,
+    backgroundColor: '#f2f5fa',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 15,
+    color: '#222',
+  },
+  renameSave: { backgroundColor: '#1c5cd6', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9, marginLeft: 8 },
+  renameSaveText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  bindRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    marginHorizontal: 16,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cfd9ea',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  bindLabel: { flex: 1, fontSize: 13, color: '#66707f' },
+  bindValue: { color: '#1c5cd6', fontWeight: '700' },
+  bindHint: { color: '#98a2b3' },
+  bindAction: { marginLeft: 10, fontSize: 13, color: '#31518a', fontWeight: '700' },
   filterRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginTop: 12 },
   chip: { borderRadius: 18, borderWidth: 1, borderColor: '#cfd9ea', paddingHorizontal: 14, paddingVertical: 7, backgroundColor: '#fff' },
   chipOn: { backgroundColor: '#1c5cd6', borderColor: '#1c5cd6' },
