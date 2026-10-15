@@ -3,6 +3,7 @@
  * 内部先跑 F2，再把校验原因写入草稿。
  */
 import type { QuestionAnswer, QuestionDraft } from './models';
+import { toQuestionType } from './models';
 import { f2ValidatePage, type F2Result } from './validation/f2';
 import { normalizeOptions } from './validation/normalize';
 
@@ -21,7 +22,7 @@ export function buildDraftsWithF2(
     const base = (d && typeof d === 'object' && !Array.isArray(d) ? d : {}) as Record<string, unknown>;
     const r = f2[i];
     return {
-      type: (base.type === 'multiple' ? 'multiple' : base.type === 'judge' ? 'judge' : 'single') as QuestionDraft['type'],
+      type: toQuestionType(base.type),
       stem: typeof base.stem === 'string' ? base.stem : '',
       options: normalizeOptions(Array.isArray(base.options) ? base.options : []).options,
       answer: (base.answer ?? null) as QuestionAnswer,

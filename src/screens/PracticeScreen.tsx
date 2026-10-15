@@ -6,8 +6,9 @@
  * - answer 为 null 的题不自动判定，提示"暂无答案"并允许跳过。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { isTextAnswerCorrect } from '../core/answerCheck';
 import { buildSearchTerms, clipHitText } from '../core/searchTerms';
 import { searchMaterialsSmart } from '../db/fts';
 import { listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_banks';
@@ -119,12 +120,16 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const [questions, setQuestions] = useState<ParsedQuestion[]>([]);
   const [idx, setIdx] = useState(0);
   const [chosen, setChosen] = useState<string[]>([]);
+  /** 填空/简答题的文本作答 */
+  const [textAnswer, setTextAnswer] = useState('');
   const [result, setResult] = useState<{ correct: boolean | null } | null>(null);
   const [session, setSession] = useState({ right: 0, wrong: 0, skipped: 0 });
   const [showImage, setShowImage] = useState(false);
   const [showFigure, setShowFigure] = useState(false);
   const [orderState, setOrderState] = useState<'seq' | 'random'>(order);
   const [explain, setExplain] = useState<ExplainState | null>(null);
+  /** 教材依据默认收起，避免讲解卡片带出一大串 */
+  const [showEvidence, setShowEvidence] = useState(false);
   /** 讲解请求序号：翻页/重新生成后让在途结果作废，避免显示到别的题上 */
   const explainSeqRef = useRef(0);
   const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
@@ -172,8 +177,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const next = useCallback(() => {
     explainSeqRef.current += 1;
     setChosen([]);
+    setTextAnswer('');
     setResult(null);
     setExplain(null);
+    setShowEvidence(false);
     if (idx + 1 >= questions.length) {
       setStage('finished');
       return;
@@ -182,11 +189,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     setStage('answering');
   }, [idx, questions.length]);
 
-  const submit = useCallback(
-    async (choice: string[]) => {
-      if (!q || stage !== 'answering') return;
-      const correct = evaluate(q, choice);
-      setChosen(choice);
+  /** 判定并落库（选择题与填空/简答共用；correct=null 表示无答案不判定） */
+  const applyResult = useCallback(
+    async (correct: boolean | null) => {
+      if (!q) return;
       setResult({ correct });
       setStage('judged');
       // 判定反馈区在选项下方，自动滚动到可见位置（否则小屏看不到讲解入口）
@@ -208,8 +214,24 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         skipped: s.skipped,
       }));
     },
-    [db, q, stage, mode],
+    [db, q, mode],
   );
+
+  const submit = useCallback(
+    async (choice: string[]) => {
+      if (!q || stage !== 'answering') return;
+      setChosen(choice);
+      await applyResult(evaluate(q, choice));
+    },
+    [q, stage, applyResult],
+  );
+
+  /** 填空/简答提交：规范化文本精确匹配（判错时界面显示参考答案供核对） */
+  const submitText = useCallback(async () => {
+    if (!q || stage !== 'answering') return;
+    const noRef = q.answer === null || q.answer === undefined;
+    await applyResult(noRef ? null : isTextAnswerCorrect(textAnswer, q.answerText));
+  }, [q, stage, textAnswer, applyResult]);
 
   const pickOption = useCallback(
     (optId: string) => {
@@ -278,13 +300,27 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           return;
         }
         const prompt = evidence.length > 0 ? renderRagPrompt(input, evidence) : renderExplainPrompt(input);
-        const r = await llm.complete(prompt, {
-          model: target.model,
-          endpoint: { url: target.url, apiKey: target.apiKey },
-          temperature: 0.3,
-          maxTokens: 1024,
-          timeoutMs: 60000,
-        });
+        let acc = '';
+        let lastFlush = 0;
+        const r = await llm.completeStream(
+          prompt,
+          {
+            model: target.model,
+            endpoint: { url: target.url, apiKey: target.apiKey },
+            temperature: 0.3,
+            maxTokens: 1024,
+            timeoutMs: 180000,
+          },
+          (d) => {
+            acc += d;
+            // 节流刷新：流式内容边生成边显示（完成时统一收尾）
+            const now = Date.now();
+            if (now - lastFlush >= 80) {
+              lastFlush = now;
+              if (explainSeqRef.current === seq) setExplain((prev) => (prev ? { ...prev, text: acc } : prev));
+            }
+          },
+        );
         if (!r.ok || !r.content || !r.content.trim()) {
           apply({
             loading: false,
@@ -298,7 +334,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           });
           return;
         }
-        const text = r.content.trim();
+        const text = acc.trim();
         const saved = await saveExplanation(q.id, text);
         apply({
           loading: false,
@@ -336,19 +372,32 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       };
       apply({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved: null });
       try {
-        const r = await llm.complete(renderExplainPrompt({ stem: q.stem, options: q.options, answerText: q.answerText }), {
-          model: target.model,
-          endpoint: { url: target.url, apiKey: target.apiKey },
-          temperature: 0.3,
-          maxTokens: 1024,
-          timeoutMs: 90000,
-          webSearch: mode === 'web',
-        });
+        let acc = '';
+        let lastFlush = 0;
+        const r = await llm.completeStream(
+          renderExplainPrompt({ stem: q.stem, options: q.options, answerText: q.answerText }),
+          {
+            model: target.model,
+            endpoint: { url: target.url, apiKey: target.apiKey },
+            temperature: 0.3,
+            maxTokens: 1024,
+            timeoutMs: 180000,
+            webSearch: mode === 'web',
+          },
+          (d) => {
+            acc += d;
+            const now = Date.now();
+            if (now - lastFlush >= 80) {
+              lastFlush = now;
+              if (explainSeqRef.current === seq) setExplain((prev) => (prev ? { ...prev, text: acc } : prev));
+            }
+          },
+        );
         if (!r.ok || !r.content || !r.content.trim()) {
           apply({ loading: false, text: null, error: r.error?.userMessage ?? '生成失败', evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved: null });
           return;
         }
-        const text = r.content.trim();
+        const text = acc.trim();
         const saved = await saveExplanation(q.id, text);
         apply({ loading: false, text, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved });
       } catch (e) {
@@ -607,6 +656,17 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           );
         })}
 
+        {q.type === 'fill' && (
+          <TextInput
+            style={styles.fillInput}
+            value={textAnswer}
+            onChangeText={setTextAnswer}
+            placeholder="输入你的答案"
+            editable={stage === 'answering'}
+            autoCorrect={false}
+          />
+        )}
+
         {judged && (
           <View style={styles.feedback}>
             {result?.correct === true && <Text style={styles.okText}>✔ 答对了</Text>}
@@ -651,17 +711,22 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 <Text style={styles.explainText}>{shownExplain.text}</Text>
                 {shownExplain.evidence.length > 0 ? (
                   <View style={styles.evidenceBox}>
-                    <Text style={styles.evidenceTitle}>教材依据</Text>
-                    {shownExplain.evidence.map((e) => (
-                      <View key={e.index} style={styles.evidenceItem}>
-                        <Text style={styles.evidenceSource}>
-                          [{e.index}] {e.source}
-                        </Text>
-                        <Text style={styles.evidenceText} numberOfLines={3}>
-                          {e.text}
-                        </Text>
-                      </View>
-                    ))}
+                    <Pressable onPress={() => setShowEvidence((v) => !v)} hitSlop={6}>
+                      <Text style={styles.evidenceTitle}>
+                        教材依据 {shownExplain.evidence.length} 条{showEvidence ? ' ▾' : ' ▸'}
+                      </Text>
+                    </Pressable>
+                    {showEvidence &&
+                      shownExplain.evidence.map((e) => (
+                        <View key={e.index} style={styles.evidenceItem}>
+                          <Text style={styles.evidenceSource}>
+                            [{e.index}] {e.source}
+                          </Text>
+                          <Text style={styles.evidenceText} numberOfLines={3}>
+                            {e.text}
+                          </Text>
+                        </View>
+                      ))}
                   </View>
                 ) : shownExplain.fallback ? null : (
                   <Text style={styles.noLibrary}>（未引用教材：教材库为空或没有命中内容）</Text>
@@ -677,6 +742,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 {shownExplain.saved === 'fail' && (
                   <Text style={styles.savedFail}>自动保存失败（不影响查看，重新生成会再试）</Text>
                 )}
+                {!shownExplain.loading && (
                 <View style={styles.explainActions}>
                   <Pressable style={styles.smallBtn} onPress={() => void feedbackWrong()}>
                     <Text style={styles.smallBtnText}>反馈有误</Text>
@@ -688,6 +754,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                     <Text style={styles.smallDeleteText}>删除讲解</Text>
                   </Pressable>
                 </View>
+                )}
               </View>
             ) : null}
             {q.sourceImage ? (
@@ -710,6 +777,15 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             style={[styles.primaryBtnSmall, chosen.length === 0 && styles.disabledBtn]}
             onPress={() => void submit(chosen)}
             disabled={chosen.length === 0}
+          >
+            <Text style={styles.primaryBtnText}>提交答案</Text>
+          </Pressable>
+        )}
+        {stage === 'answering' && q.type === 'fill' && (
+          <Pressable
+            style={[styles.primaryBtnSmall, !textAnswer.trim() && styles.disabledBtn]}
+            onPress={() => void submitText()}
+            disabled={!textAnswer.trim()}
           >
             <Text style={styles.primaryBtnText}>提交答案</Text>
           </Pressable>
@@ -775,6 +851,17 @@ const styles = StyleSheet.create({
   stemCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 14 },
   stemText: { fontSize: 16, color: '#222', lineHeight: 24 },
   questionFigure: { width: '100%', height: 180, borderRadius: 12, backgroundColor: '#fff', marginBottom: 14 },
+  fillInput: {
+    marginTop: 4,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#dbe1ec',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#333',
+  },
   optBtn: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1.5, borderColor: '#dbe1ec', paddingVertical: 13, paddingHorizontal: 14, marginBottom: 10 },
   optPicked: { borderColor: '#1c5cd6', backgroundColor: '#f3f7ff' },
   optCorrect: { borderColor: '#0a7d33', backgroundColor: '#eaf7ef' },

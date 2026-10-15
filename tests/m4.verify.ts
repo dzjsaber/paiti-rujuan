@@ -54,7 +54,7 @@ check('renderExplainPrompt：包含题干/选项/答案与关键要求', () => {
   assert(p.includes('下列计算正确的是'), '含题干');
   assert(p.includes('A. 1+1=2') && p.includes('B. 1+1=3'), '含选项');
   assert(p.includes('已知答案：A'), '含答案');
-  assert(p.includes('300'), '含字数要求');
+  assert(p.includes('150'), '含字数要求（精简版 ≤150 字）');
   assert(p.includes('禁止编造'), '含防编造要求');
 });
 
@@ -75,6 +75,7 @@ check('renderRagPrompt：依据编号/来源/固定回复要求', () => {
   assert(p.includes('当前导入教材未覆盖该知识点'), '含固定回复句');
   assert(p.includes('禁止伪造引用'), '含防伪引用要求');
   assert(p.includes('（试卷未提供答案）'), '无答案时标注');
+  assert(p.includes('150') && p.includes('不要复述'), '含精简要求');
 });
 
 const NO_SECRETS: ExplainSecrets = {

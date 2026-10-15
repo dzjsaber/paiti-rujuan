@@ -9,6 +9,7 @@ import { f2ValidatePage, f2ValidateQuestion } from '../src/core/validation/f2';
 import { normalizeAnswer } from '../src/core/validation/normalize';
 import { classifyApiError } from '../src/services/llm/errors';
 import { stemHash } from '../src/core/dedupe';
+import { isTextAnswerCorrect } from '../src/core/answerCheck';
 
 let passed = 0;
 const failures: string[] = [];
@@ -321,6 +322,43 @@ check('dedupe 标点/空白差异 → 同 hash', () => {
   assert.equal(a, b);
   const c = stemHash('下列关于导数的说法正确的是');
   assert.notEqual(a, c);
+});
+
+// ---------------------------------------------------------------- 填空/简答（fill）
+
+check('F2 fill：文本答案校验（无答案复核、非法答案无效、带选项提示）', () => {
+  const base = {
+    type: 'fill',
+    stem: '8051单片机复位后程序计数器PC的值是____',
+    options: [],
+    answer: '0000H',
+    confidence: 0.9,
+    review_reasons: [],
+    visual_features: [],
+  };
+  assert.equal(f2ValidateQuestion(base).status, 'passed');
+  assert.equal(f2ValidateQuestion({ ...base, answer: null }).status, 'needs_review');
+  assert.equal(f2ValidateQuestion({ ...base, answer: ['A'] }).status, 'invalid');
+  assert.equal(
+    f2ValidateQuestion({ ...base, options: [{ id: 'A', text: '选项' }] }).status,
+    'needs_review',
+    '带选项应提示复核',
+  );
+});
+
+check('normalizeAnswer fill：trim 与空串转 null', () => {
+  assert.equal(normalizeAnswer('fill', '  0000H ', []).answer, '0000H');
+  assert.equal(normalizeAnswer('fill', '   ', []).answer, null);
+  assert.equal(normalizeAnswer('fill', 42, []).answer, '42');
+});
+
+check('isTextAnswerCorrect：全角/大小写/标点/空白容错', () => {
+  assert.equal(isTextAnswerCorrect('００００Ｈ', '0000H'), true, '全角应归一');
+  assert.equal(isTextAnswerCorrect('ram', 'RAM'), true, '大小写忽略');
+  assert.equal(isTextAnswerCorrect('随机存储器（RAM）', '随机存储器RAM'), true, '标点忽略');
+  assert.equal(isTextAnswerCorrect(' 8 0 5 1 ', '8051'), true, '空白忽略');
+  assert.equal(isTextAnswerCorrect('8052', '8051'), false, '不同答案判错');
+  assert.equal(isTextAnswerCorrect('', '8051'), false, '空作答不算对');
 });
 
 // ---------------------------------------------------------------- 汇总

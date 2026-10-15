@@ -7,6 +7,7 @@
  * 默认重试 1 次、退避 20s（实测 1305 的观察值）；永久性错误不重试。
  */
 import { classifyApiError, type ApiErrorInfo } from './errors';
+import { SseTextStream } from './sse';
 
 export const ZHIPU_CHAT_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 export const VISION_MODEL = 'glm-4.6v-flash';
@@ -85,6 +86,102 @@ export class LLMService {
       maxRetries: opts.maxRetries,
       retryDelayMs: opts.retryDelayMs,
       webSearch: opts.webSearch,
+    });
+  }
+
+  /**
+   * 流式文本调用（F7 讲解）：边生成边回调 onDelta。
+   * RN 的 fetch 读不到响应流，这里用 XMLHttpRequest 的增量 responseText 做 SSE 解析；
+   * 不做断线重试（失败由用户重新生成）。
+   */
+  async completeStream(
+    prompt: string,
+    opts: Partial<LLMCallOptions>,
+    onDelta: (delta: string) => void,
+  ): Promise<LLMCallResult> {
+    const started = Date.now();
+    const key = opts.endpoint?.apiKey ?? (await this.getApiKey());
+    if (!key) {
+      return {
+        ok: false,
+        content: null,
+        error: { code: null, http: null, retryable: false, userMessage: '未配置 API Key，请在设置页填写' },
+        httpStatus: null,
+        latencyMs: 0,
+        attempts: 0,
+        usage: null,
+      };
+    }
+    const payload = {
+      model: opts.model ?? TEXT_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: opts.temperature ?? 0.3,
+      max_tokens: opts.maxTokens ?? 1024,
+      stream: true,
+      ...(opts.thinking ? { thinking: { type: opts.thinking } } : {}),
+      ...(opts.webSearch ? { tools: [{ type: 'web_search', web_search: { enable: true } }] } : {}),
+    };
+    return new Promise<LLMCallResult>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      const parser = new SseTextStream();
+      let content = '';
+      let seen = 0;
+      const settle = (ok: boolean, error: ApiErrorInfo | null) => {
+        resolve({
+          ok,
+          content: ok ? content : null,
+          error,
+          httpStatus: xhr.status || null,
+          latencyMs: Date.now() - started,
+          attempts: 1,
+          usage: null,
+        });
+      };
+      const drain = () => {
+        const full = xhr.responseText ?? '';
+        if (full.length > seen) {
+          const delta = parser.push(full.slice(seen));
+          seen = full.length;
+          if (delta) {
+            content += delta;
+            onDelta(delta);
+          }
+        }
+      };
+      xhr.open('POST', opts.endpoint?.url ?? ZHIPU_CHAT_URL);
+      xhr.setRequestHeader('Authorization', `Bearer ${key}`);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.timeout = opts.timeoutMs ?? 180000;
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === 3) {
+          drain();
+          return;
+        }
+        if (xhr.readyState !== 4) return;
+        drain();
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (content) settle(true, null);
+          else settle(false, { code: null, http: xhr.status, retryable: false, userMessage: '模型返回内容为空' });
+          return;
+        }
+        let bizCode: string | null = null;
+        let message: string | null = null;
+        try {
+          const j = JSON.parse(xhr.responseText) as { error?: { code?: string; message?: string } };
+          bizCode = j.error?.code ?? null;
+          message = j.error?.message ?? null;
+        } catch {
+          /* 保留原始状态码 */
+        }
+        settle(false, classifyApiError(bizCode, xhr.status, message));
+      };
+      xhr.ontimeout = () => settle(false, { code: null, http: null, retryable: true, userMessage: '请求超时，请检查网络后重试' });
+      xhr.onerror = () => settle(false, classifyApiError(null, null));
+      try {
+        xhr.send(JSON.stringify(payload));
+      } catch (e) {
+        settle(false, { code: null, http: null, retryable: false, userMessage: String((e as Error)?.message ?? e) });
+      }
     });
   }
 

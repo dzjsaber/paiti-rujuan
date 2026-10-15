@@ -88,6 +88,11 @@ async function main(): Promise<void> {
       threw2 = true;
     }
     assert(threw2, '枚举外 type 应被 CHECK 拒绝');
+    // v8 起支持 fill（填空/简答）
+    db.exec(
+      "INSERT INTO questions(id,bank_id,type,stem,source_engine,status,review_status,created_at,updated_at) " +
+        "VALUES('q3','b1','fill','填空题____','zhipu','pending','passed','2026-01-01','2026-01-01')",
+    );
   });
 
   await check('source_hash 唯一约束', () => {

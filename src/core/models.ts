@@ -6,7 +6,16 @@
  * 是两套生命周期，禁止混用同一个字段表达。
  */
 
-export type QuestionType = 'single' | 'multiple' | 'judge';
+/**
+ * fill：填空题/简答题共用（文本作答）——题干保留空位原文（如 ____），
+ * options 为空数组，answer 为文本或 null。
+ */
+export type QuestionType = 'single' | 'multiple' | 'judge' | 'fill';
+
+/** 模型输出的题型 → 领域题型（枚举外一律按单选处理，交给 F2 判无效） */
+export function toQuestionType(raw: unknown): QuestionType {
+  return raw === 'multiple' || raw === 'judge' || raw === 'fill' ? raw : 'single';
+}
 
 /** 正式题库中题目的状态（questions.status） */
 export type QuestionStatus = 'pending' | 'approved' | 'disabled';

@@ -21,6 +21,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { BankMaterialPicker } from '../components/BankMaterialPicker';
 import { CropModal } from '../components/CropModal';
 import type { QuestionAnswer, QuestionDraft, ReviewStatus } from '../core/models';
+import { toQuestionType } from '../core/models';
 import { normalizeStem } from '../core/dedupe';
 import { f2ValidatePage, f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer, normalizeOptions } from '../core/validation/normalize';
@@ -93,7 +94,7 @@ function statusColor(s: ReviewStatus): string {
 }
 
 function typeLabel(t: string): string {
-  return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : t;
+  return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : t === 'fill' ? '填空/简答' : t;
 }
 
 export function ReviewScreen({
@@ -205,7 +206,7 @@ export function ReviewScreen({
         const r = f2[i];
         const rawOptions = Array.isArray(base.options) ? base.options : [];
         return {
-          type: (base.type === 'multiple' ? 'multiple' : base.type === 'judge' ? 'judge' : 'single') as QuestionDraft['type'],
+          type: toQuestionType(base.type),
           stem: typeof base.stem === 'string' ? base.stem : '',
           options: normalizeOptions(rawOptions).options,
           answer: (base.answer ?? null) as QuestionAnswer,
@@ -757,7 +758,7 @@ export function ReviewScreen({
               <TextInput
                 style={styles.answerInput}
                 value={it.answerText}
-                placeholder="空 / 对 / 错 / A / A,C"
+                placeholder={it.draft.type === 'fill' ? '文本答案（留空=暂无）' : '空 / 对 / 错 / A / A,C'}
                 onChangeText={(t) => patchItem(it.itemId, { answerText: t })}
                 onBlur={() => void saveItemDraft(it.itemId)}
               />

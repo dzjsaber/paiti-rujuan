@@ -41,6 +41,19 @@ export function normalizeAnswer(type: QuestionType, raw: unknown, optionIds: str
     return { answer: raw as QuestionAnswer, reasons };
   }
 
+  if (type === 'fill') {
+    // 填空/简答：答案为文本；数字转文本，空串视为无答案
+    if (typeof raw === 'string') {
+      const t = raw.trim();
+      if (t !== raw) reasons.push('填空/简答答案已去除首尾空白');
+      return { answer: t || null, reasons };
+    }
+    if (typeof raw === 'number') {
+      return { answer: String(raw), reasons: ['答案由数字转为文本'] };
+    }
+    return { answer: raw as QuestionAnswer, reasons };
+  }
+
   if (type === 'single') {
     if (typeof raw === 'string') {
       const t = raw.trim().toUpperCase();

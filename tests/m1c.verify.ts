@@ -5,6 +5,7 @@
 import { draftToRowParams, rowToQuestion, type QuestionRow } from '../src/db/repo_questions';
 import { escapeLike, shouldUseLike } from '../src/db/fts';
 import { LLMService, type FetchLike } from '../src/services/llm/LLMService';
+import { SseTextStream } from '../src/services/llm/sse';
 import { ZhipuVisionEngine } from '../src/services/recognition/zhipuVision';
 import type { QuestionDraft } from '../src/core/models';
 
@@ -140,6 +141,17 @@ async function main(): Promise<void> {
     const tools = bodies[1].tools as { type: string; web_search?: { enable?: boolean } }[] | undefined;
     assert(Array.isArray(tools) && tools[0]?.type === 'web_search', '应带 web_search 工具');
     assert(tools?.[0]?.web_search?.enable === true, 'enable 应为 true');
+  });
+
+  await check('SseTextStream：跨块 JSON、[DONE] 终止、注释行忽略', () => {
+    const s = new SseTextStream();
+    assert(s.push('data: {"choices":[{"delta":{"content":"你') === '', '半截行应留在缓冲');
+    const d1 = s.push('好"}}]}\ndata: {"choices":[{"delta":{"content":"世界"}}]}\n');
+    assert(d1 === '你好世界', `应解析出两段增量，实际「${d1}」`);
+    assert(s.push('data: [DONE]\n') === '', '[DONE] 不产生文本');
+    assert(s.push('data: {"choices":[{"delta":{"content":"x"}}]}\n') === '', '结束后不再产出');
+    const s2 = new SseTextStream();
+    assert(s2.push(': keep-alive\n\ndata: {"choices":[{"delta":{"content":"A"}}]}\n') === 'A', '注释行应忽略');
   });
 
   await check('1305 限流：重试 1 次后失败，attempts=2 且可重试标记保留', async () => {

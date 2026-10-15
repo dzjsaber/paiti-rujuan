@@ -204,6 +204,54 @@ CREATE INDEX IF NOT EXISTS idx_material_images ON material_images(material_id);`
     // AI 讲解独立存储：与题目自带解析 analysis 分开，避免互相覆盖
     sql: 'ALTER TABLE questions ADD COLUMN ai_explanation TEXT;',
   },
+  {
+    version: 8,
+    name: '008_fill_type',
+    // type CHECK 增加 fill（填空/简答，文本作答）：SQLite 无法直接修改 CHECK，
+    // 按官方流程重建表（同 v3 模式）；questions 被 wrong_book/practice_log 主键引用，
+    // PRAGMA 必须在事务外，故 noTransaction。
+    noTransaction: true,
+    sql: `
+PRAGMA foreign_keys = OFF;
+DROP TABLE IF EXISTS questions_new;
+CREATE TABLE questions_new (
+  id TEXT PRIMARY KEY,
+  bank_id TEXT NOT NULL REFERENCES banks(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('single','multiple','judge','fill')),
+  stem TEXT NOT NULL,
+  options_json TEXT NOT NULL DEFAULT '[]',
+  answer_json TEXT NOT NULL DEFAULT 'null',
+  analysis TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  confidence REAL,
+  review_reasons_json TEXT NOT NULL DEFAULT '[]',
+  visual_features_json TEXT NOT NULL DEFAULT '[]',
+  source_image_path TEXT,
+  source_page INTEGER,
+  source_hash TEXT,
+  source_engine TEXT NOT NULL CHECK (source_engine IN ('zhipu','doc')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','disabled')),
+  review_status TEXT NOT NULL CHECK (review_status IN ('passed','needs_review','invalid')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  question_image_path TEXT,
+  ai_explanation TEXT
+);
+INSERT INTO questions_new(id, bank_id, type, stem, options_json, answer_json, analysis, tags_json, confidence,
+  review_reasons_json, visual_features_json, source_image_path, source_page, source_hash,
+  source_engine, status, review_status, created_at, updated_at, question_image_path, ai_explanation)
+  SELECT id, bank_id, type, stem, options_json, answer_json, analysis, tags_json, confidence,
+  review_reasons_json, visual_features_json, source_image_path, source_page, source_hash,
+  source_engine, status, review_status, created_at, updated_at, question_image_path, ai_explanation FROM questions;
+DROP TABLE questions;
+ALTER TABLE questions_new RENAME TO questions;
+CREATE INDEX IF NOT EXISTS idx_questions_bank ON questions(bank_id);
+CREATE INDEX IF NOT EXISTS idx_questions_status ON questions(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_questions_source_hash
+  ON questions(source_hash) WHERE source_hash IS NOT NULL;
+PRAGMA foreign_keys = ON;
+`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

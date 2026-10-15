@@ -3,7 +3,7 @@
  *
  * 设计要点（均有 M0 实测依据）：
  * - 模型自评 confidence 不可靠（实测全为 0）：0 或缺失一律要求人工复核；
- * - 模型会输出枚举外类型（解答/填空/操作）：一律判 invalid，由 UI 提示"暂不支持"；
+ * - 模型会输出枚举外类型（解答/操作等）：一律判 invalid，由 UI 提示"暂不支持"；
  * - 归一化是可选项：默认对模型原始输出严格校验；链路中可用 normalize 选项先做机械修复。
  */
 import type { QuestionType, ReviewStatus } from '../models';
@@ -32,7 +32,7 @@ export interface F2Options {
   minStemLength?: number;
 }
 
-const QUESTION_TYPES: ReadonlySet<string> = new Set<QuestionType>(['single', 'multiple', 'judge']);
+const QUESTION_TYPES: ReadonlySet<string> = new Set<QuestionType>(['single', 'multiple', 'judge', 'fill']);
 
 function invalid(...messages: string[]): F2Result {
   return { status: 'invalid', issues: messages.map((m) => ({ rule: m.slice(0, 2), message: m })) };
@@ -53,7 +53,7 @@ export function f2ValidateQuestion(input: unknown, opts: F2Options = {}): F2Resu
 
   const type = q.type;
   if (typeof type !== 'string' || !QUESTION_TYPES.has(type)) {
-    return invalid(`V1/V2: type 非法「${String(type)}」，一期仅支持 single/multiple/judge`);
+    return invalid(`V1/V2: type 非法「${String(type)}」，仅支持 single/multiple/judge/fill`);
   }
   const qtype = type as QuestionType;
 
@@ -127,12 +127,21 @@ export function f2ValidateQuestion(input: unknown, opts: F2Options = {}): F2Resu
       }
       if (seen.size < 2) return invalid('V2: 多选答案有效项不足 2 个');
     }
-  } else {
-    // judge
+  } else if (qtype === 'judge') {
     if (answer === null || answer === undefined) {
       addReview('V8', '答案缺失（null），入库后等待补充');
     } else if (typeof answer !== 'boolean') {
       return invalid(`V2: 判断题答案必须是布尔值（实际 ${typeof answer}）`);
+    }
+  } else {
+    // fill（填空/简答）：文本作答；题干保留空位原文，不应带选项
+    if (normOptions.length > 0) {
+      addReview('V3', '填空题/简答题不应带选项，请核对识别结果');
+    }
+    if (answer === null || answer === undefined) {
+      addReview('V8', '答案缺失（null），入库后等待补充');
+    } else if (typeof answer !== 'string' || !answer.trim()) {
+      return invalid(`V2: 填空题答案必须是文本（实际 ${typeof answer}）`);
     }
   }
 

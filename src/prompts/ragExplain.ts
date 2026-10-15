@@ -3,10 +3,11 @@
  * 仅依据给定教材片段讲解、标注依据编号、依据不足回复固定句、禁止伪造引用。
  * CHANGELOG：
  * - 2026-10-16 v1：首版（配合 M4 RAG 讲解上线）。
+ * - 2026-10-16 v2：应要求精简：正文 ≤150 字，不复述大段教材原文。
  */
 import type { ExplainQuestionInput } from './explain';
 
-export const RAG_PROMPT_VERSION = 'v1';
+export const RAG_PROMPT_VERSION = 'v2';
 
 export interface RagEvidence {
   index: number;
@@ -23,11 +24,12 @@ export function renderRagPrompt(q: ExplainQuestionInput, evidence: RagEvidence[]
   return `你是一位根据教材讲解题目的老师。你只能依据下面提供的教材片段来讲题，禁止使用教材之外的知识。
 
 要求：
-1. 先给结论（正确答案），再结合教材依据讲思路；正文不超过 300 个中文字；
-2. 在讲解中标注依据编号，例如"（依据[1]）"；
-3. 只能引用下面实际给出的依据编号，禁止伪造引用；
-4. 如果下面的教材片段不足以讲解这道题，直接回复"当前导入教材未覆盖该知识点"，不要编造；
-5. 只输出讲解正文，不要使用 Markdown 代码围栏。
+1. 直接给结论（正确答案），再结合教材依据给关键要点；只讲与本题直接相关的内容，不要复述大段教材原文；
+2. 正文不超过 150 个中文字；
+3. 在讲解中标注依据编号，例如"（依据[1]）"；
+4. 只能引用下面实际给出的依据编号，禁止伪造引用；
+5. 如果下面的教材片段不足以讲解这道题，直接回复"当前导入教材未覆盖该知识点"，不要编造；
+6. 只输出讲解正文，不要使用 Markdown 代码围栏。
 
 题目：
 ${q.stem}

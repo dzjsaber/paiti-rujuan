@@ -41,7 +41,7 @@ function hasAnswer(row: QuestionRow): boolean {
 }
 
 function typeShort(t: string): string {
-  return t === 'single' ? '单选' : t === 'multiple' ? '多选' : '判断';
+  return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '填空';
 }
 
 export function BankScreen({ db, onBack }: BankScreenProps) {
