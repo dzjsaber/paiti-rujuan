@@ -617,9 +617,13 @@ export function ReviewScreen({
           <Text style={styles.back}>← 返回</Text>
         </Pressable>
         <Text style={styles.title}>确认入库</Text>
-        <Pressable onPress={() => setShowImage(true)} hitSlop={8}>
-          <Text style={styles.back}>看原图</Text>
-        </Pressable>
+        {imageUri ? (
+          <Pressable onPress={() => setShowImage(true)} hitSlop={8}>
+            <Text style={styles.back}>看原图</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.spacer} />
+        )}
       </View>
       <View style={styles.summaryRow}>
         <Text style={styles.summary}>
@@ -828,6 +832,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   back: { fontSize: 15, color: '#1c5cd6' },
   title: { fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
+  spacer: { width: 52 },
   summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 8, gap: 8 },
   summary: { flex: 1, fontSize: 12, color: '#66707f' },
   summarySub: { paddingHorizontal: 16, marginTop: 4, fontSize: 11, color: '#98a2b3' },

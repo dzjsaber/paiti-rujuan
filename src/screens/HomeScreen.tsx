@@ -29,6 +29,8 @@ export interface HomeScreenProps {
   onOpenWrongBook: () => void;
   /** 题库管理（补答案、编辑、删除） */
   onOpenBank: () => void;
+  /** 文档导入（PDF/DOCX/TXT/MD） */
+  onOpenDocImport: () => void;
 }
 
 export function HomeScreen({
@@ -40,6 +42,7 @@ export function HomeScreen({
   onOpenPractice,
   onOpenWrongBook,
   onOpenBank,
+  onOpenDocImport,
 }: HomeScreenProps) {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -181,6 +184,10 @@ export function HomeScreen({
         <Text style={styles.bigBtnAltHint}>选择已有的试卷照片</Text>
       </Pressable>
 
+      <Pressable style={styles.docBtn} onPress={onOpenDocImport}>
+        <Text style={styles.docBtnText}>导入文档（PDF / DOCX / TXT / MD）</Text>
+      </Pressable>
+
       {busy && <ActivityIndicator style={styles.busy} />}
 
       <View style={styles.rowBtns}>
@@ -245,6 +252,8 @@ const styles = StyleSheet.create({
   bigBtnAlt: { marginTop: 14, backgroundColor: '#fff', borderRadius: 14, paddingVertical: 18, paddingHorizontal: 20, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea' },
   bigBtnAltText: { color: '#1c5cd6', fontSize: 18, fontWeight: '700' },
   bigBtnAltHint: { color: '#8a94a6', fontSize: 12, marginTop: 4 },
+  docBtn: { marginTop: 12, borderRadius: 12, paddingVertical: 13, alignItems: 'center', backgroundColor: '#eef3fb' },
+  docBtnText: { color: '#31518a', fontSize: 14, fontWeight: '600' },
   busy: { marginTop: 20 },
   rowBtns: { flexDirection: 'row', gap: 12, marginTop: 16 },
   rowBtn: { flex: 1, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea' },
