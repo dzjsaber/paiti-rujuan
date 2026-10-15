@@ -114,7 +114,7 @@ export function ReviewScreen({
   });
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<string | null>(null);
-  const [insertResult, setInsertResult] = useState<{ ok: number; dup: number; failed: string[] } | null>(null);
+  const [insertResult, setInsertResult] = useState<{ ok: number; dup: number; skipped: number; failed: string[] } | null>(null);
   const [showImage, setShowImage] = useState(false);
   const [showCrop, setShowCrop] = useState(false);
 
@@ -423,8 +423,14 @@ export function ReviewScreen({
     setPhase('inserting');
     let ok = 0;
     let dup = 0;
+    let skipped = 0;
     const failed: string[] = [];
     for (const it of targets) {
+      // 未通过校验（红标）或空题干的题目不得入库（§F3：不能被普通确认操作绕过）
+      if (it.status === 'invalid' || !it.draft.stem.trim()) {
+        skipped += 1;
+        continue;
+      }
       try {
         // 防重复入库：库中已存在相同题干（非停用）则跳过
         const existing = await db.getFirstAsync<{ id: string }>(
@@ -452,7 +458,7 @@ export function ReviewScreen({
         }
       }
     }
-    setInsertResult({ ok, dup, failed });
+    setInsertResult({ ok, dup, skipped, failed });
     setPhase('done');
   }, [db]);
 
@@ -546,6 +552,11 @@ export function ReviewScreen({
         {(insertResult?.dup ?? 0) > 0 && (
           <Text style={styles.centerHint}>跳过 {insertResult?.dup} 题（题库中已存在相同题干）</Text>
         )}
+        {(insertResult?.skipped ?? 0) > 0 && (
+          <Text style={styles.centerHint}>
+            跳过 {insertResult?.skipped} 题（未通过校验或题干为空，请先修正为「可入库/需复核」再入库）
+          </Text>
+        )}
         {(insertResult?.failed.length ?? 0) > 0 && (
           <Text style={styles.errorText}>失败 {insertResult?.failed.length} 题：{insertResult?.failed.join('\n')}</Text>
         )}
@@ -597,9 +608,7 @@ export function ReviewScreen({
                 <Text style={styles.cardIndex}>第 {idx + 1} 题</Text>
                 <Text style={styles.typeText}>{typeLabel(it.draft.type)}</Text>
               </View>
-              <Text style={styles.readonlyStem} numberOfLines={3}>
-                {it.draft.stem}
-              </Text>
+              <Text style={styles.readonlyStem}>{it.draft.stem}</Text>
             </View>
           ) : (
           <View
