@@ -13,6 +13,7 @@ import { HomeScreen, type ReviewParams } from './src/screens/HomeScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { BankScreen } from './src/screens/BankScreen';
 import { ImportDocScreen } from './src/screens/ImportDocScreen';
+import { MaterialScreen } from './src/screens/MaterialScreen';
 import { PracticeScreen } from './src/screens/PracticeScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { SelfTestScreen } from './src/screens/SelfTestScreen';
@@ -26,6 +27,7 @@ type Screen =
   | { name: 'history' }
   | { name: 'bank' }
   | { name: 'importdoc' }
+  | { name: 'materials' }
   | { name: 'practice'; mode: 'bank' | 'wrong'; order: 'seq' | 'random' }
   | { name: 'wrongbook' }
   | { name: 'settings' }
@@ -92,6 +94,7 @@ export default function App() {
           onOpenHistory={() => setScreen({ name: 'history' })}
           onOpenBank={() => setScreen({ name: 'bank' })}
           onOpenDocImport={() => setScreen({ name: 'importdoc' })}
+          onOpenMaterials={() => setScreen({ name: 'materials' })}
           onOpenPractice={() => setScreen({ name: 'practice', mode: 'bank', order: 'seq' })}
           onOpenWrongBook={() => setScreen({ name: 'wrongbook' })}
         />
@@ -126,6 +129,7 @@ export default function App() {
           onOpenReview={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
         />
       )}
+      {screen.name === 'materials' && <MaterialScreen db={db} onBack={goHome} />}
       {screen.name === 'practice' && (
         <PracticeScreen db={db} mode={screen.mode} order={screen.order} onDone={goHome} />
       )}

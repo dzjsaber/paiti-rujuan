@@ -1,6 +1,6 @@
 /** F8 纯逻辑验证：文档分块 + 答案表解析/映射。运行：npx tsx tests/f8.verify.ts */
 import { applyAnswerTable, extractQuestionNo, parseAnswerTable, type MappableDraft } from '../src/services/documents/answerTable';
-import { chunkDocument } from '../src/services/documents/chunker';
+import { MATERIAL_BOUNDARY, chunkDocument } from '../src/services/documents/chunker';
 
 let passed = 0;
 const fails: string[] = [];
@@ -46,6 +46,24 @@ check('题目边界优先：新段为题号开头且当前块过半时断开', (
   const joined = chunks.map((c) => c.text).join('');
   assert(joined.includes('7. 第七题题干。'), '题号段应被包含');
   // 至少证明"题号开头的段"没有被从中间弃掉
+});
+
+check('教材分块（800/100，章节标题边界）', () => {
+  const para = '教科书正文内容，用于验证教材分块策略。'.repeat(12); // ~230 字符
+  // 前置 6 段撑满一个块后，再遇"第二章"标题，应优先在此断开
+  const blocks = [
+    ...Array.from({ length: 6 }, () => para),
+    '第二章 有理数',
+    ...Array.from({ length: 6 }, () => para),
+  ];
+  const text = blocks.join('\n\n');
+  const chunks = chunkDocument(text, 800, 100, MATERIAL_BOUNDARY);
+  assert(chunks.length >= 3, `应至少 3 段，实际 ${chunks.length}`);
+  for (const c of chunks) {
+    assert(c.text.length <= 800 + 300, `单段长度 ${c.text.length} 超出预期`);
+  }
+  const chapterChunk = chunks.find((c) => c.text.trim().startsWith('第二章'));
+  assert(!!chapterChunk, '章节标题应作为新段起点被优先切分');
 });
 
 // ---------------------------------------------------------------- 答案表

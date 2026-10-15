@@ -31,6 +31,8 @@ export interface HomeScreenProps {
   onOpenBank: () => void;
   /** 文档导入（PDF/DOCX/TXT/MD） */
   onOpenDocImport: () => void;
+  /** 教材库（F9a） */
+  onOpenMaterials: () => void;
 }
 
 export function HomeScreen({
@@ -43,6 +45,7 @@ export function HomeScreen({
   onOpenWrongBook,
   onOpenBank,
   onOpenDocImport,
+  onOpenMaterials,
 }: HomeScreenProps) {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -186,6 +189,10 @@ export function HomeScreen({
 
       <Pressable style={styles.docBtn} onPress={onOpenDocImport}>
         <Text style={styles.docBtnText}>导入文档（PDF / DOCX / TXT / MD）</Text>
+      </Pressable>
+
+      <Pressable style={styles.docBtn} onPress={onOpenMaterials}>
+        <Text style={styles.docBtnText}>教材库（本地知识库，供 AI 讲解引用）</Text>
       </Pressable>
 
       {busy && <ActivityIndicator style={styles.busy} />}

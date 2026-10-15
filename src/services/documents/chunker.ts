@@ -12,7 +12,15 @@ export interface DocChunk {
 
 const QUESTION_START = /^\s*(\d{1,3})\s*[.、．)）]/;
 
-export function chunkDocument(text: string, maxLen = 3000, overlap = 200): DocChunk[] {
+/** 教材分块边界：Markdown 标题 / “第X章/节/讲” / 数字小节号 开头的段落 */
+export const MATERIAL_BOUNDARY = /^\s*(?:#{1,6}\s|第[一二三四五六七八九十百千0-9]+[章节讲单元]|[0-9]+(?:\.[0-9]+)*\s+\S)/;
+
+export function chunkDocument(
+  text: string,
+  maxLen = 3000,
+  overlap = 200,
+  boundaryRe: RegExp = QUESTION_START,
+): DocChunk[] {
   const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!normalized.trim()) return [];
 
@@ -51,12 +59,15 @@ export function chunkDocument(text: string, maxLen = 3000, overlap = 200): DocCh
     }
     const wouldLen = pEnd - cur.start;
     const curLen = cur.end - cur.start;
-    const isQuestionStart = QUESTION_START.test(p.text);
-    if (wouldLen > maxLen || (isQuestionStart && curLen >= maxLen * 0.6)) {
+    const isBoundary = boundaryRe.test(p.text);
+    const breakAtBoundary = isBoundary && curLen >= maxLen * 0.6;
+    if (wouldLen > maxLen || breakAtBoundary) {
       const prevEnd: number = cur.end;
       flush();
-      // 有限重叠：新块起点回退不超过 overlap，且不越过上一块内部
-      const overlapStart: number = overlap > 0 ? Math.max(p.start - overlap, prevEnd - overlap) : p.start;
+      // 自然边界（标题/题号）处切分：不带重叠，保证边界干净地成为新块开头；
+      // 超长硬切时才带有限重叠（不超过 overlap，且不越过上一块内部）
+      const withOverlap = !breakAtBoundary && overlap > 0;
+      const overlapStart: number = withOverlap ? Math.max(p.start - overlap, prevEnd - overlap) : p.start;
       cur = { start: Math.min(overlapStart, p.start), end: pEnd };
       continue;
     }
