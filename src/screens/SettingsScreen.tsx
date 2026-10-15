@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { clearApiKey, getApiKey, maskKey, saveApiKey } from '../services/apiKey';
+import { getModelTier, MODEL_TIERS, saveModelTier, type ModelTier } from '../services/modelPrefs';
 
 export interface SettingsScreenProps {
   onBack: () => void;
@@ -11,9 +12,16 @@ export interface SettingsScreenProps {
 export function SettingsScreen({ onBack, onOpenSelfTest }: SettingsScreenProps) {
   const [current, setCurrent] = useState<string | null>(null);
   const [input, setInput] = useState('');
+  const [tier, setTier] = useState<ModelTier>('free');
 
   const refresh = useCallback(async () => {
     setCurrent(await getApiKey());
+    setTier(await getModelTier());
+  }, []);
+
+  const chooseTier = useCallback(async (t: ModelTier) => {
+    setTier(t);
+    await saveModelTier(t);
   }, []);
 
   useEffect(() => {
@@ -67,6 +75,27 @@ export function SettingsScreen({ onBack, onOpenSelfTest }: SettingsScreenProps) 
         </Pressable>
       )}
 
+      <Text style={styles.section}>识别模型</Text>
+      {(Object.keys(MODEL_TIERS) as ModelTier[]).map((t) => {
+        const info = MODEL_TIERS[t];
+        const active = tier === t;
+        return (
+          <Pressable
+            key={t}
+            style={[styles.tierCard, active && styles.tierCardActive]}
+            onPress={() => void chooseTier(t)}
+          >
+            <View style={styles.tierHeader}>
+              <Text style={[styles.tierLabel, active && styles.tierLabelActive]}>{info.label}</Text>
+              <Text style={styles.tierTag}>{info.tagline}</Text>
+            </View>
+            <Text style={styles.tierDetail}>{info.detail}</Text>
+            <Text style={styles.tierModel}>模型：{info.id}</Text>
+          </Pressable>
+        );
+      })}
+      <Text style={styles.hint}>高级档按量计费（从智谱账户扣费），使用前请确认余额。</Text>
+
       <Pressable style={styles.btnGhost} onPress={onOpenSelfTest}>
         <Text style={styles.btnGhostText}>运行技术自检（SQLite / 图片压缩）</Text>
       </Pressable>
@@ -102,4 +131,19 @@ const styles = StyleSheet.create({
   btnGhost: { marginTop: 10, borderRadius: 10, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
   btnGhostText: { color: '#31518a', fontSize: 14 },
   privacy: { marginTop: 24, fontSize: 11, color: '#8a94a6', lineHeight: 17 },
+  tierCard: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#dbe1ec',
+    padding: 12,
+  },
+  tierCardActive: { borderColor: '#1c5cd6', backgroundColor: '#f3f7ff' },
+  tierHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  tierLabel: { fontSize: 15, fontWeight: '700', color: '#333' },
+  tierLabelActive: { color: '#1c5cd6' },
+  tierTag: { fontSize: 12, color: '#66707f' },
+  tierDetail: { marginTop: 6, fontSize: 12, color: '#556', lineHeight: 18 },
+  tierModel: { marginTop: 6, fontSize: 11, color: '#98a2b3' },
 });

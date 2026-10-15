@@ -26,6 +26,7 @@ import { insertQuestion } from '../db/repo_questions';
 import { RECOGNITION_PROMPT } from '../prompts/recognition';
 import { prepareImageForRecognition } from '../services/image';
 import type { LLMService } from '../services/llm/LLMService';
+import { getModelTier, modelIdForTier } from '../services/modelPrefs';
 import { parseModelText } from '../services/llm/ResponseParser';
 import { ZhipuVisionEngine } from '../services/recognition/zhipuVision';
 
@@ -95,7 +96,8 @@ export function ReviewScreen({ db, llm, imagePath, imageWidth, imageHeight, sour
       await updatePageStatus(db, pageId, 'processing', null, true);
 
       setProgressText('正在识别（大模型推理中，约 10-60 秒）…');
-      const engine = new ZhipuVisionEngine(llm);
+      const tier = await getModelTier();
+      const engine = new ZhipuVisionEngine(llm, modelIdForTier(tier));
       const out = await engine.recognize({ imageBase64: prepared.base64, prompt: RECOGNITION_PROMPT });
       if (!out.ok || !out.raw) {
         await updatePageStatus(db, pageId, 'failed', out.error?.code ?? 'unknown');
