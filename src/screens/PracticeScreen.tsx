@@ -49,6 +49,20 @@ interface ParsedQuestion {
   questionImage: string | null;
 }
 
+interface ExplainState {
+  loading: boolean;
+  text: string | null;
+  error: string | null;
+  evidence: RagEvidence[];
+  usedLibrary: boolean;
+  /** 题库已绑定教材但检索无命中：等待用户确认是否降级（联网/模型知识） */
+  noEvidence: boolean;
+  /** 非空表示本次讲解未依据教材（用户确认后的降级方式） */
+  fallback: 'web' | 'model' | null;
+  /** 生成后自动保存（写入题目解析）的结果 */
+  saved: 'ok' | 'fail' | null;
+}
+
 function parseRow(row: QuestionRow): ParsedQuestion {
   const options = JSON.parse(row.options_json) as { id: string; text: string }[];
   const answer = JSON.parse(row.answer_json) as unknown;
@@ -107,18 +121,9 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const [showImage, setShowImage] = useState(false);
   const [showFigure, setShowFigure] = useState(false);
   const [orderState, setOrderState] = useState<'seq' | 'random'>(order);
-  const [explain, setExplain] = useState<{
-    loading: boolean;
-    text: string | null;
-    error: string | null;
-    evidence: RagEvidence[];
-    usedLibrary: boolean;
-    /** 题库已绑定教材但检索无命中：等待用户确认是否降级（联网/模型知识） */
-    noEvidence: boolean;
-    /** 非空表示本次讲解未依据教材（用户确认后的降级方式） */
-    fallback: 'web' | 'model' | null;
-  } | null>(null);
-  const [adopted, setAdopted] = useState(false);
+  const [explain, setExplain] = useState<ExplainState | null>(null);
+  /** 讲解请求序号：翻页/重新生成后让在途结果作废，避免显示到别的题上 */
+  const explainSeqRef = useRef(0);
   const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
   const [bankId, setBankId] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
@@ -162,10 +167,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const q = questions[idx];
 
   const next = useCallback(() => {
+    explainSeqRef.current += 1;
     setChosen([]);
     setResult(null);
     setExplain(null);
-    setAdopted(false);
     if (idx + 1 >= questions.length) {
       setStage('finished');
       return;
@@ -220,15 +225,34 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     next();
   }, [next]);
 
+  /** 讲解生成后自动保存为该题解析（按用户要求：无需确认，生成完成即保存） */
+  const saveAnalysis = useCallback(
+    async (questionId: string, text: string): Promise<'ok' | 'fail'> => {
+      try {
+        await setQuestionAnalysis(db, questionId, text);
+        setQuestions((prev) => prev.map((x) => (x.id === questionId ? { ...x, analysis: text } : x)));
+        return 'ok';
+      } catch {
+        return 'fail';
+      }
+    },
+    [db],
+  );
+
   /**
    * F7/F9b：AI 讲解。
    * 题库绑定了教材时只检索绑定教材，且必须依据教材回答；检索无命中不自动降级，
    * 由用户确认后走联网/模型知识（见 onFallbackPress）。未绑定教材则维持"命中用教材、未命中普通讲解"。
+   * 生成成功后自动保存为该题解析（无用户确认步骤）。
    */
   const runExplain = useCallback(
     async (target: { url: string; model: string; apiKey: string }) => {
       if (!q) return;
-      setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null });
+      const seq = ++explainSeqRef.current;
+      const apply = (s: ExplainState) => {
+        if (explainSeqRef.current === seq) setExplain(s);
+      };
+      apply({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null, saved: null });
       try {
         const input = { stem: q.stem, options: q.options, answerText: q.answerText };
         const searchText = `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`;
@@ -247,7 +271,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           source: `${h.materialName}${h.sourceLoc ? ` · ${h.sourceLoc}` : ''}`,
         }));
         if (evidence.length === 0 && boundIds.length > 0) {
-          setExplain({ loading: false, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: true, fallback: null });
+          apply({ loading: false, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: true, fallback: null, saved: null });
           return;
         }
         const prompt = evidence.length > 0 ? renderRagPrompt(input, evidence) : renderExplainPrompt(input);
@@ -259,7 +283,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           timeoutMs: 60000,
         });
         if (!r.ok || !r.content || !r.content.trim()) {
-          setExplain({
+          apply({
             loading: false,
             text: null,
             error: r.error?.userMessage ?? '生成失败',
@@ -267,20 +291,24 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             usedLibrary: evidence.length > 0,
             noEvidence: false,
             fallback: null,
+            saved: null,
           });
           return;
         }
-        setExplain({
+        const text = r.content.trim();
+        const saved = await saveAnalysis(q.id, text);
+        apply({
           loading: false,
-          text: r.content.trim(),
+          text,
           error: null,
           evidence,
           usedLibrary: evidence.length > 0,
           noEvidence: false,
           fallback: null,
+          saved,
         });
       } catch (e) {
-        setExplain({
+        apply({
           loading: false,
           text: null,
           error: String((e as Error)?.message ?? e),
@@ -288,17 +316,22 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           usedLibrary: false,
           noEvidence: false,
           fallback: null,
+          saved: null,
         });
       }
     },
-    [db, llm, q],
+    [db, llm, q, saveAnalysis],
   );
 
   /** 教材未命中、经用户确认后的降级讲解：智谱联网搜索 / 其他提供商模型知识 */
   const runFallbackExplain = useCallback(
     async (target: { url: string; model: string; apiKey: string }, mode: 'web' | 'model') => {
       if (!q) return;
-      setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+      const seq = ++explainSeqRef.current;
+      const apply = (s: ExplainState) => {
+        if (explainSeqRef.current === seq) setExplain(s);
+      };
+      apply({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved: null });
       try {
         const r = await llm.complete(renderExplainPrompt({ stem: q.stem, options: q.options, answerText: q.answerText }), {
           model: target.model,
@@ -309,15 +342,17 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           webSearch: mode === 'web',
         });
         if (!r.ok || !r.content || !r.content.trim()) {
-          setExplain({ loading: false, text: null, error: r.error?.userMessage ?? '生成失败', evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+          apply({ loading: false, text: null, error: r.error?.userMessage ?? '生成失败', evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved: null });
           return;
         }
-        setExplain({ loading: false, text: r.content.trim(), error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+        const text = r.content.trim();
+        const saved = await saveAnalysis(q.id, text);
+        apply({ loading: false, text, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved });
       } catch (e) {
-        setExplain({ loading: false, text: null, error: String((e as Error)?.message ?? e), evidence: [], usedLibrary: false, noEvidence: false, fallback: mode });
+        apply({ loading: false, text: null, error: String((e as Error)?.message ?? e), evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved: null });
       }
     },
-    [llm, q],
+    [llm, q, saveAnalysis],
   );
 
   const feedbackWrong = useCallback(async () => {
@@ -330,16 +365,28 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     }
   }, [db, q]);
 
-  const adopt = useCallback(async () => {
-    if (!q || !explain?.text) return;
-    try {
-      await setQuestionAnalysis(db, q.id, explain.text);
-      setAdopted(true);
-      Alert.alert('已采纳', '讲解已写入该题解析（标记为用户确认）。');
-    } catch (e) {
-      Alert.alert('采纳失败', String((e as Error)?.message ?? e));
-    }
-  }, [db, q, explain]);
+  /** 删除这道题已保存的讲解（题目解析清空，可重新生成） */
+  const removeExplain = useCallback(() => {
+    if (!q) return;
+    Alert.alert('删除这道题的讲解？', '保存的解析会被清除，之后可以重新生成。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await setQuestionAnalysis(db, q.id, null);
+              setQuestions((prev) => prev.map((x) => (x.id === q.id ? { ...x, analysis: null } : x)));
+              setExplain(null);
+            } catch (e) {
+              Alert.alert('删除失败', String((e as Error)?.message ?? e));
+            }
+          })();
+        },
+      },
+    ]);
+  }, [db, q]);
 
   const resolveTarget = useCallback(async () => {
     return resolveExplainTarget(explainProvider, {
@@ -401,6 +448,19 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       ],
     );
   }, [resolveTarget, runFallbackExplain]);
+
+  /** 重新生成讲解（生成成功后自动覆盖保存） */
+  const regenerateExplain = useCallback(async () => {
+    const target = await resolveTarget();
+    if (target.kind !== 'api') {
+      Alert.alert(
+        '无法生成',
+        target.kind === 'missing_config' ? target.message : '当前为分享模式，请先在设置里切换到应用内讲解。',
+      );
+      return;
+    }
+    await runExplain({ url: target.url, model: target.model, apiKey: target.apiKey });
+  }, [resolveTarget, runExplain]);
 
   if (stage === 'pickBank') {
     return (
@@ -545,7 +605,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             {result?.correct === null && (
               <Text style={styles.warnText}>该题暂无答案，无法自动判定（可在"导入历史"里补充答案后重新校验）</Text>
             )}
-            {q.analysis ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
+            {q.analysis && !explain?.text ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
             {explain === null && (
               <Pressable style={styles.explainBtn} onPress={() => void onExplainPress()}>
                 <Text style={styles.explainBtnText}>{explainProvider === 'external' ? '发给豆包讲解' : 'AI 讲解'}</Text>
@@ -604,17 +664,20 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 ) : (
                   <Text style={styles.aiWarn}>AI 生成内容，仅供参考</Text>
                 )}
+                {explain.saved === 'ok' && <Text style={styles.savedTag}>✓ 已自动保存为解析</Text>}
+                {explain.saved === 'fail' && (
+                  <Text style={styles.savedFail}>自动保存失败（不影响查看，重新生成会再试）</Text>
+                )}
                 <View style={styles.explainActions}>
                   <Pressable style={styles.smallBtn} onPress={() => void feedbackWrong()}>
                     <Text style={styles.smallBtnText}>反馈有误</Text>
                   </Pressable>
-                  {!adopted ? (
-                    <Pressable style={styles.smallBtn} onPress={() => void adopt()}>
-                      <Text style={styles.smallBtnText}>采纳为解析</Text>
-                    </Pressable>
-                  ) : (
-                    <Text style={styles.adoptedTag}>已采纳为解析</Text>
-                  )}
+                  <Pressable style={styles.smallBtn} onPress={() => void regenerateExplain()}>
+                    <Text style={styles.smallBtnText}>重新生成</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallDeleteBtn} onPress={removeExplain}>
+                    <Text style={styles.smallDeleteText}>删除讲解</Text>
+                  </Pressable>
                 </View>
               </View>
             ) : null}
@@ -728,10 +791,13 @@ const styles = StyleSheet.create({
   evidenceText: { marginTop: 4, fontSize: 12, color: '#555', lineHeight: 18 },
   noLibrary: { marginTop: 10, fontSize: 11, color: '#98a2b3' },
   aiWarn: { marginTop: 10, fontSize: 11, color: '#b8860b' },
+  savedTag: { marginTop: 10, fontSize: 11, color: '#0a7d33', fontWeight: '700' },
+  savedFail: { marginTop: 10, fontSize: 11, color: '#c02a2a' },
   explainActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
   smallBtn: { borderRadius: 8, borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 7 },
   smallBtnText: { color: '#31518a', fontSize: 12 },
-  adoptedTag: { fontSize: 12, color: '#0a7d33', fontWeight: '700' },
+  smallDeleteBtn: { borderRadius: 8, borderWidth: 1, borderColor: '#e3b4ae', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 7 },
+  smallDeleteText: { color: '#c0392b', fontSize: 12 },
   srcBtn: { marginTop: 12, alignSelf: 'flex-start', backgroundColor: '#e8f0ff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   srcBtnText: { color: '#1c5cd6', fontSize: 13, fontWeight: '700' },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 26, paddingTop: 8 },

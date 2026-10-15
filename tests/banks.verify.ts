@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { searchMaterialsSmart } from '../src/db/fts';
 import { MIGRATIONS } from '../src/db/schema';
-import { countAllQuestions } from '../src/db/repo_questions';
+import { countAllQuestions, setQuestionAnalysis } from '../src/db/repo_questions';
 import {
   createBank,
   deleteBank,
@@ -208,6 +208,17 @@ async function main(): Promise<void> {
     const only = await searchMaterialsSmart(db, '8051单片机', 5, ['m2']);
     assert(only.length === 1 && only[0].materialName === '教材二', '应按教材过滤');
     assert((await searchMaterialsSmart(db, '8051单片机', 5, ['m1'])).length === 1, 'm1 应只命中 1 段');
+  });
+
+  await check('讲解自动保存/删除：setQuestionAnalysis 写入与 null 清空', async () => {
+    const db = freshDb();
+    const q1 = await insertQuestionRow(db, 'bank_default', '题 1');
+    await setQuestionAnalysis(db, q1, 'AI 讲解内容');
+    const saved = await db.getFirstAsync<{ analysis: string | null }>('SELECT analysis FROM questions WHERE id = ?', q1);
+    assert(saved?.analysis === 'AI 讲解内容', '应写入解析');
+    await setQuestionAnalysis(db, q1, null);
+    const cleared = await db.getFirstAsync<{ analysis: string | null }>('SELECT analysis FROM questions WHERE id = ?', q1);
+    assert(cleared?.analysis === null, 'null 应清空解析');
   });
 
   await check('恢复 v1 备份：题目引用的库不存在时兜底建库，题不丢', async () => {

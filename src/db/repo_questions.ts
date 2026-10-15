@@ -141,8 +141,8 @@ export async function countAllQuestions(db: SQLiteDatabase): Promise<number> {
   return row?.c ?? 0;
 }
 
-/** 采纳 AI 讲解为解析（F7：仅用户主动采纳时写入） */
-export async function setQuestionAnalysis(db: SQLiteDatabase, id: string, analysis: string): Promise<void> {
+/** 写入/清除题目解析（F7：AI 讲解生成后自动保存；传 null 表示删除讲解） */
+export async function setQuestionAnalysis(db: SQLiteDatabase, id: string, analysis: string | null): Promise<void> {
   await db.runAsync('UPDATE questions SET analysis = ?, updated_at = ? WHERE id = ?', analysis, new Date().toISOString(), id);
 }
 
