@@ -1,5 +1,5 @@
 /** M4 纯逻辑验证：检索片段提取 + 讲解 prompt 构造。运行：npx tsx tests/m4.verify.ts */
-import { buildSearchTerms } from '../src/core/searchTerms';
+import { buildSearchTerms, clipHitText } from '../src/core/searchTerms';
 import { renderExplainPrompt } from '../src/prompts/explain';
 import { renderRagPrompt, type RagEvidence } from '../src/prompts/ragExplain';
 import { DEEPSEEK_URL, resolveExplainTarget, ZHIPU_URL, type ExplainSecrets } from '../src/services/llm/providerDefs';
@@ -18,14 +18,28 @@ function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error(msg);
 }
 
-check('buildSearchTerms：标点切分、短片段过滤、去重、上限', () => {
+check('buildSearchTerms：3 字滑窗、清理标点、去重、上限', () => {
   const terms = buildSearchTerms('已知点A在函数y=6/x的图象上，且x1<0<x2，则下列结论正确的是（ ）');
   assert(terms.length > 0, '应有片段');
-  assert(terms.every((t) => t.length >= 3), '片段应 ≥3 字');
-  assert(terms.length <= 8, '不超过 8 个');
-  const long = buildSearchTerms('这是一个非常非常非常非常非常长的连续中文句子没有标点'.repeat(3));
-  assert(long.every((t) => t.length <= 12), '过长片段应截断到 12 字');
+  assert(terms.every((t) => t.length === 3), '片段应均为 3 字窗口');
+  assert(terms.includes('下列结') || terms.includes('列结论'), '应含题干关键位置窗口');
+  assert(terms.length <= 41, '不超过上限（+尾部兜底 1 个）');
+  const long = buildSearchTerms('这是一个非常非常非常非常非常长的连续中文句子没有标点'.repeat(3), 10);
+  assert(long.length <= 11, '长文本应按上限采样');
+  assert(long.includes('有标点'), '采样应保证覆盖串尾');
   assert(buildSearchTerms('ab').length === 0, '全部过短时返回空');
+});
+
+check('clipHitText：短片段原样、锚居中取锚窗、锚在头部取头尾双窗', () => {
+  const short = 'A'.repeat(500);
+  assert(clipHitText(short, ['x']) === short, '≤600 字应原样返回');
+  const mid = 'A'.repeat(400) + '关键词' + 'B'.repeat(400);
+  const c1 = clipHitText(mid, ['关键词']);
+  assert(c1.includes('关键词') && c1.startsWith('……'), '锚居中应取锚窗');
+  const head = '关键词' + 'C'.repeat(800);
+  const c2 = clipHitText(head, ['关键词']);
+  assert(c2.includes('关键词'), '头尾双窗应含头部锚');
+  assert(c2.includes('……'), '双窗应带省略连接');
 });
 
 check('renderExplainPrompt：包含题干/选项/答案与关键要求', () => {

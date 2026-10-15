@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { buildSearchTerms, clipHitText } from '../core/searchTerms';
 import { searchMaterialsSmart } from '../db/fts';
 import { listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_banks';
 import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
@@ -230,16 +231,19 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null });
       try {
         const input = { stem: q.stem, options: q.options, answerText: q.answerText };
+        const searchText = `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`;
+        const terms = buildSearchTerms(searchText);
         const boundIds = await listBankMaterialIds(db, q.bankId);
         const hits = await searchMaterialsSmart(
           db,
-          `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`,
-          5,
+          searchText,
+          // 取 10 段：3 字滑窗召回宽，正确段落可能排在 5 名之后（实测真实课件最差第 9 名）
+          10,
           boundIds.length > 0 ? boundIds : undefined,
         );
         const evidence: RagEvidence[] = hits.map((h, i) => ({
           index: i + 1,
-          text: h.text.slice(0, 300),
+          text: clipHitText(h.text, terms),
           source: `${h.materialName}${h.sourceLoc ? ` · ${h.sourceLoc}` : ''}`,
         }));
         if (evidence.length === 0 && boundIds.length > 0) {
@@ -555,7 +559,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             )}
             {explain?.noEvidence && (
               <>
-                <Text style={styles.warnText}>当前导入教材未覆盖该知识点。</Text>
+                <Text style={styles.warnText}>未在绑定教材里检索到相关内容（教材可能用了不同措辞）。</Text>
                 <Pressable style={styles.explainBtn} onPress={() => void onFallbackPress()}>
                   <Text style={styles.explainBtnText}>
                     {explainProvider === 'zhipu_free' || explainProvider === 'zhipu_pro'
