@@ -54,7 +54,9 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           'text/plain',
           'text/markdown',
         ],
-        copyToCacheDirectory: true,
+        // 由应用自行复制（见 extractors.materialize）：DocumentPicker 的缓存复制
+        // 在部分来源（微信/文件管理器）下会产生不可读文件
+        copyToCacheDirectory: false,
         multiple: false,
       });
       if (res.canceled || !res.assets?.length) return;

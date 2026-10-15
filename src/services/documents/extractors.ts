@@ -42,12 +42,35 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 async function readBytes(uri: string): Promise<Uint8Array> {
-  const b64 = await FileSystemLegacy.readAsStringAsync(uri, { encoding: FileSystemLegacy.EncodingType.Base64 });
+  const local = await materialize(uri, 'bin');
+  const b64 = await FileSystemLegacy.readAsStringAsync(local, { encoding: FileSystemLegacy.EncodingType.Base64 });
   return base64ToBytes(b64);
 }
 
 async function readTextFile(uri: string): Promise<string> {
-  return FileSystemLegacy.readAsStringAsync(uri, { encoding: FileSystemLegacy.EncodingType.UTF8 });
+  const local = await materialize(uri, 'txt');
+  return FileSystemLegacy.readAsStringAsync(local, { encoding: FileSystemLegacy.EncodingType.UTF8 });
+}
+
+/**
+ * 把所选文件复制到应用自有缓存目录后再读取。
+ * 背景（真机实测）：Android 上 DocumentPicker 返回的缓存路径在不同来源
+ * （微信/文件管理等 provider）下可能不可读（java.io.IOException: isn't readable）；
+ * 由应用自己经系统 ContentResolver 复制一份，可稳定读取。
+ */
+async function materialize(uri: string, ext: string): Promise<string> {
+  const cacheDir = FileSystemLegacy.cacheDirectory;
+  if (!cacheDir) return uri;
+  const dest = `${cacheDir}imp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  try {
+    await FileSystemLegacy.copyAsync({ from: uri, to: dest });
+  } catch (e) {
+    throw new Error(
+      '无法读取所选文件（来源位置不可访问）。可以先把文件保存到手机的"文件"应用或下载目录后再试。原始错误：' +
+        String((e as Error)?.message ?? e),
+    );
+  }
+  return dest;
 }
 
 const mammoth = mammothRaw as unknown as {
