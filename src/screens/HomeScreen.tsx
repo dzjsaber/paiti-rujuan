@@ -1,6 +1,6 @@
 /** 首页：题库统计 + 拍照/相册导入入口 + 设置入口。 */
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { DEFAULT_BANK_ID } from '../db/database';
@@ -108,7 +108,7 @@ export function HomeScreen({
   }, [onOpenReview]);
 
   return (
-    <View style={styles.page}>
+    <ScrollView style={styles.page} contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
         <Text style={styles.title}>拍题入卷</Text>
         <Pressable onPress={onOpenSettings} style={styles.settingsBtn} hitSlop={8}>
@@ -159,7 +159,7 @@ export function HomeScreen({
         </Pressable>
       </View>
 
-    </View>
+    </ScrollView>
   );
 }
 
@@ -188,4 +188,5 @@ const styles = StyleSheet.create({
   historyBtn: { marginTop: 14, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea' },
   historyBtnText: { color: '#31518a', fontSize: 15, fontWeight: '700' },
   historyBtnHint: { color: '#98a2b3', fontSize: 11, marginTop: 3 },
+  scrollContent: { paddingBottom: 60 },
 });

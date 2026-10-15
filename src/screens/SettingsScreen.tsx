@@ -1,6 +1,6 @@
 /** 设置页：API Key 配置（SecureStore）、技术自检入口、隐私说明。 */
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { clearApiKey, getApiKey, maskKey, saveApiKey } from '../services/apiKey';
 import {
   EXPLAIN_MODES,
@@ -63,7 +63,7 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
   }, [refresh]);
 
   return (
-    <View style={styles.page}>
+    <ScrollView style={styles.page} contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={8}>
           <Text style={styles.back}>← 返回</Text>
@@ -140,7 +140,7 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         <Text style={styles.btnGhostText}>数据备份与恢复</Text>
       </Pressable>
 
-    </View>
+    </ScrollView>
   );
 }
 
@@ -166,6 +166,7 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   btnGhost: { marginTop: 10, borderRadius: 10, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
   btnGhostText: { color: '#31518a', fontSize: 14 },
+  scrollContent: { paddingBottom: 60 },
   tierCard: {
     marginTop: 10,
     backgroundColor: '#fff',

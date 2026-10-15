@@ -4,7 +4,7 @@
  * 恢复按稳定 ID 合并、单事务执行（失败自动回滚）。
  */
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -94,7 +94,7 @@ export function BackupScreen({ db, onBack }: BackupScreenProps) {
   }, [db]);
 
   return (
-    <View style={styles.page}>
+    <ScrollView style={styles.page} contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={8}>
           <Text style={styles.back}>← 返回</Text>
@@ -119,7 +119,7 @@ export function BackupScreen({ db, onBack }: BackupScreenProps) {
 
       {busy && <ActivityIndicator style={styles.busy} />}
       {lastResult && <Text style={styles.result}>{lastResult}</Text>}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -138,4 +138,5 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.6 },
   busy: { marginTop: 18 },
   result: { marginTop: 18, fontSize: 13, color: '#0a7d33', lineHeight: 20 },
+  scrollContent: { paddingBottom: 60 },
 });
