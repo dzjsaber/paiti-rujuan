@@ -9,6 +9,15 @@ import type { ExplainQuestionInput } from './explain';
 
 export const RAG_PROMPT_VERSION = 'v2';
 
+/** 教材片段不足时模型被要求回复的固定句：视为"无结果"，转为联网/模型知识确认入口 */
+export const RAG_NO_EVIDENCE_REPLY = '当前导入教材未覆盖该知识点';
+
+/** 模型回复是否只是"教材未覆盖"固定句（限短文本，避免误伤带该句的正常讲解） */
+export function isNoEvidenceAnswer(text: string): boolean {
+  const t = text.trim();
+  return t.length <= 40 && t.includes('未覆盖该知识点');
+}
+
 export interface RagEvidence {
   index: number;
   text: string;
@@ -28,7 +37,7 @@ export function renderRagPrompt(q: ExplainQuestionInput, evidence: RagEvidence[]
 2. 正文不超过 150 个中文字；
 3. 在讲解中标注依据编号，例如"（依据[1]）"；
 4. 只能引用下面实际给出的依据编号，禁止伪造引用；
-5. 如果下面的教材片段不足以讲解这道题，直接回复"当前导入教材未覆盖该知识点"，不要编造；
+5. 如果下面的教材片段不足以讲解这道题，直接回复"${RAG_NO_EVIDENCE_REPLY}"，不要编造；
 6. 只输出讲解正文，不要使用 Markdown 代码围栏。
 
 题目：

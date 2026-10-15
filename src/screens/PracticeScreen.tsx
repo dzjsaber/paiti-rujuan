@@ -15,7 +15,7 @@ import { listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_ban
 import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
 import { setQuestionExplanation, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
-import { renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
+import { isNoEvidenceAnswer, renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
 import { TEXT_MODEL, type LLMService } from '../services/llm/LLMService';
 import { getExplainProvider } from '../services/modelPrefs';
 import {
@@ -308,8 +308,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             model: target.model,
             endpoint: { url: target.url, apiKey: target.apiKey },
             temperature: 0.3,
-            maxTokens: 1024,
+            maxTokens: 2048,
             timeoutMs: 180000,
+            // glm-4.7 默认强制思考、会占满配额导致正文为空；讲解不需要思考（仅智谱端点生效）
+            thinking: 'disabled',
           },
           (d) => {
             acc += d;
@@ -335,6 +337,11 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           return;
         }
         const text = acc.trim();
+        // 教材模式下模型回复"未覆盖"固定句：视为无结果，转为联网/模型知识确认入口（不保存）
+        if (evidence.length > 0 && isNoEvidenceAnswer(text)) {
+          apply({ loading: false, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: true, fallback: null, saved: null });
+          return;
+        }
         const saved = await saveExplanation(q.id, text);
         apply({
           loading: false,
@@ -380,9 +387,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             model: target.model,
             endpoint: { url: target.url, apiKey: target.apiKey },
             temperature: 0.3,
-            maxTokens: 1024,
+            maxTokens: 2048,
             timeoutMs: 180000,
             webSearch: mode === 'web',
+            thinking: 'disabled',
           },
           (d) => {
             acc += d;
@@ -608,7 +616,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const shownExplain: ExplainState | null =
     explain ??
     (q.explanation
-      ? { loading: false, text: q.explanation, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null, saved: 'ok' }
+      ? isNoEvidenceAnswer(q.explanation)
+        ? // 历史保存的"未覆盖"固定句不再展示为讲解，直接给联网/模型知识入口
+          { loading: false, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: true, fallback: null, saved: null }
+        : { loading: false, text: q.explanation, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null, saved: 'ok' }
       : null);
 
   return (
@@ -672,7 +683,9 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             {result?.correct === true && <Text style={styles.okText}>✔ 答对了</Text>}
             {result?.correct === false && <Text style={styles.badText}>✘ 答错了，正确答案：{q.answerText}</Text>}
             {result?.correct === null && (
-              <Text style={styles.warnText}>该题暂无答案，无法自动判定（可在"导入历史"里补充答案后重新校验）</Text>
+              <Text style={styles.warnText}>
+                该题暂无答案，无法自动判定。可点下方"AI 讲解"获取答案与解析，或在题库管理里补充答案。
+              </Text>
             )}
             {q.analysis ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
             {shownExplain === null && (
@@ -688,7 +701,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             )}
             {shownExplain?.noEvidence && (
               <>
-                <Text style={styles.warnText}>未在绑定教材里检索到相关内容（教材可能用了不同措辞）。</Text>
+                <Text style={styles.warnText}>教材中未找到能讲这道题的内容（可能是措辞差异或教材未覆盖）。</Text>
                 <Pressable style={styles.explainBtn} onPress={() => void onFallbackPress()}>
                   <Text style={styles.explainBtnText}>
                     {explainProvider === 'zhipu_free' || explainProvider === 'zhipu_pro'

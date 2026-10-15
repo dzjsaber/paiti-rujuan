@@ -1,7 +1,7 @@
 /** M4 纯逻辑验证：检索片段提取 + 讲解 prompt 构造。运行：npx tsx tests/m4.verify.ts */
 import { buildSearchTerms, clipHitText } from '../src/core/searchTerms';
 import { renderExplainPrompt } from '../src/prompts/explain';
-import { renderRagPrompt, type RagEvidence } from '../src/prompts/ragExplain';
+import { isNoEvidenceAnswer, renderRagPrompt, type RagEvidence } from '../src/prompts/ragExplain';
 import { DEEPSEEK_URL, resolveExplainTarget, ZHIPU_URL, type ExplainSecrets } from '../src/services/llm/providerDefs';
 
 let passed = 0;
@@ -40,6 +40,18 @@ check('clipHitText：短片段原样、锚居中取锚窗、锚在头部取头�
   const c2 = clipHitText(head, ['关键词']);
   assert(c2.includes('关键词'), '头尾双窗应含头部锚');
   assert(c2.includes('……'), '双窗应带省略连接');
+});
+
+check('isNoEvidenceAnswer：固定句判定只匹配短文本，不误伤正常讲解', () => {
+  assert(isNoEvidenceAnswer('当前导入教材未覆盖该知识点'), '固定句应命中');
+  assert(isNoEvidenceAnswer('  当前导入教材未覆盖该知识点。 '), '带空白/句号也应命中');
+  assert(
+    !isNoEvidenceAnswer(
+      '答案：are。讲解：关于"未覆盖该知识点"这类说法，详见教材第 3 章的第一节与第二节内容，重点在主语数的一致规则。',
+    ),
+    '长文本不误伤',
+  );
+  assert(!isNoEvidenceAnswer('讲解内容'), '普通文本不命中');
 });
 
 check('renderExplainPrompt：包含题干/选项/答案与关键要求', () => {

@@ -86,6 +86,8 @@ export class LLMService {
       maxRetries: opts.maxRetries,
       retryDelayMs: opts.retryDelayMs,
       webSearch: opts.webSearch,
+      thinking: opts.thinking,
+      endpoint: opts.endpoint,
     });
   }
 
@@ -118,7 +120,9 @@ export class LLMService {
       temperature: opts.temperature ?? 0.3,
       max_tokens: opts.maxTokens ?? 1024,
       stream: true,
-      ...(opts.thinking ? { thinking: { type: opts.thinking } } : {}),
+      ...((opts.endpoint?.url ?? ZHIPU_CHAT_URL) === ZHIPU_CHAT_URL && opts.thinking
+        ? { thinking: { type: opts.thinking } }
+        : {}),
       ...(opts.webSearch ? { tools: [{ type: 'web_search', web_search: { enable: true } }] } : {}),
     };
     return new Promise<LLMCallResult>((resolve) => {
@@ -160,8 +164,27 @@ export class LLMService {
         if (xhr.readyState !== 4) return;
         drain();
         if (xhr.status >= 200 && xhr.status < 300) {
-          if (content) settle(true, null);
-          else settle(false, { code: null, http: xhr.status, retryable: false, userMessage: '模型返回内容为空' });
+          if (content) {
+            settle(true, null);
+            return;
+          }
+          // 流式没有解析出正文（如思考占满配额、服务端未按 SSE 返回）：降级一次非流式重试
+          void this.complete(prompt, opts)
+            .then((r) => {
+              if (r.ok && r.content) {
+                content = r.content;
+                onDelta(r.content);
+                settle(true, null);
+              } else {
+                settle(
+                  false,
+                  r.error ?? { code: null, http: xhr.status, retryable: false, userMessage: '模型返回内容为空' },
+                );
+              }
+            })
+            .catch(() =>
+              settle(false, { code: null, http: xhr.status, retryable: false, userMessage: '模型返回内容为空' }),
+            );
           return;
         }
         let bizCode: string | null = null;
@@ -202,12 +225,15 @@ export class LLMService {
     const maxRetries = opts.maxRetries ?? 1;
     const retryDelay = opts.retryDelayMs ?? 20000;
     const timeoutMs = opts.timeoutMs ?? 60000;
+    // thinking 是智谱专属参数：仅智谱端点附加（DeepSeek/自定义端点收到未知参数可能报错）
+    const endpointUrl = opts.endpoint?.url ?? ZHIPU_CHAT_URL;
+    const isZhipu = endpointUrl === ZHIPU_CHAT_URL;
     const payload = {
       model: opts.model,
       messages: opts.messages,
       temperature: opts.temperature,
       max_tokens: opts.maxTokens,
-      ...(opts.thinking ? { thinking: { type: opts.thinking } } : {}),
+      ...(isZhipu && opts.thinking ? { thinking: { type: opts.thinking } } : {}),
       // 智谱联网搜索（服务端执行，模型自动决定是否搜索）
       ...(opts.webSearch ? { tools: [{ type: 'web_search', web_search: { enable: true } }] } : {}),
     };
@@ -222,7 +248,7 @@ export class LLMService {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const resp = await this.fetchImpl(opts.endpoint?.url ?? ZHIPU_CHAT_URL, {
+        const resp = await this.fetchImpl(endpointUrl, {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),

@@ -154,6 +154,24 @@ async function main(): Promise<void> {
     assert(s2.push(': keep-alive\n\ndata: {"choices":[{"delta":{"content":"A"}}]}\n') === 'A', '注释行应忽略');
   });
 
+  await check('thinking 参数仅智谱端点附加（其他提供商不发送）', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl: FetchLike = async (_input, init) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return jsonResponse(200, { choices: [{ message: { content: 'ok' } }] });
+    };
+    const svc = new LLMService(async () => 'k', fetchImpl);
+    await svc.complete('hi', { retryDelayMs: 0, thinking: 'disabled' });
+    const zhipu = bodies[0]?.thinking as { type?: string } | undefined;
+    assert(zhipu?.type === 'disabled', '智谱端点应带 thinking');
+    await svc.complete('hi', {
+      retryDelayMs: 0,
+      thinking: 'disabled',
+      endpoint: { url: 'https://api.example.com/v1/chat/completions', apiKey: 'x' },
+    });
+    assert(bodies[1] && !('thinking' in bodies[1]), '非智谱端点不应带 thinking');
+  });
+
   await check('1305 限流：重试 1 次后失败，attempts=2 且可重试标记保留', async () => {
     let calls = 0;
     const fetchImpl: FetchLike = async () => {
