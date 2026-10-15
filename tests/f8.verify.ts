@@ -2,6 +2,7 @@
 import { applyAnswerTable, extractQuestionNo, parseAnswerTable, type MappableDraft } from '../src/services/documents/answerTable';
 import { MATERIAL_BOUNDARY, chunkDocument } from '../src/services/documents/chunker';
 import { pptxBytesToText } from '../src/services/documents/pptx';
+import { pptBytesToText } from '../src/services/documents/ppt';
 import { strToU8, zipSync } from 'fflate';
 
 let passed = 0;
@@ -84,6 +85,16 @@ check('PPTX 文本提取（按页序 + 实体解码 + 页标记）', () => {
   assert(r.text.includes('【第 1 页】') && r.text.includes('第一页标题'), '应含第 1 页内容与页标记');
   assert(r.text.indexOf('第一页标题') < r.text.indexOf('第二页标题'), '应按幻灯片顺序排列');
   assert(r.text.includes('内容A & 补充'), '应解码 XML 实体并合并同一段落的多个文本节点');
+});
+
+check('老版 .ppt 解析器：非 CFB 输入给出明确错误', () => {
+  let msg = '';
+  try {
+    pptBytesToText(new Uint8Array([1, 2, 3, 4]));
+  } catch (e) {
+    msg = String((e as Error).message);
+  }
+  assert(msg.includes('OLE'), '应提示复合文档签名错误');
 });
 
 // ---------------------------------------------------------------- 答案表

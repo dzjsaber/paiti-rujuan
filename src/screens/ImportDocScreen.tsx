@@ -160,7 +160,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           <View style={styles.spacer} />
         </View>
         <View style={styles.center}>
-          <Text style={styles.centerText}>支持 PDF / DOCX / PPTX / TXT / MD（文字版）</Text>
+          <Text style={styles.centerText}>支持 PDF / DOCX / PPT / PPTX / TXT / MD（文字版）</Text>
           <Text style={styles.centerHint}>扫描版（图片型）文件请改用"拍照识别"。</Text>
           <Pressable style={styles.primaryBtn} onPress={() => void pick()}>
             <Text style={styles.primaryBtnText}>选择文件</Text>
