@@ -176,6 +176,17 @@ PRAGMA foreign_keys = ON;
 );
 CREATE INDEX IF NOT EXISTS idx_material_images ON material_images(material_id);`,
   },
+  {
+    version: 5,
+    name: '005_ai_feedback',
+    // AI 讲解的"反馈有误"本地记录（F7）
+    sql: `CREATE TABLE IF NOT EXISTS ai_feedback (
+  id TEXT PRIMARY KEY,
+  question_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

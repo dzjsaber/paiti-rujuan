@@ -6,14 +6,19 @@
  * - answer 为 null 的题不自动判定，提示"暂无答案"并允许跳过。
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { DEFAULT_BANK_ID } from '../db/database';
-import { listPracticeQuestions, markWrong, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
-import type { QuestionRow } from '../db/repo_questions';
+import { searchMaterialsSmart } from '../db/fts';
+import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
+import { setQuestionAnalysis, type QuestionRow } from '../db/repo_questions';
+import { renderExplainPrompt } from '../prompts/explain';
+import { renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
+import { TEXT_MODEL, type LLMService } from '../services/llm/LLMService';
 
 export interface PracticeScreenProps {
   db: SQLiteDatabase;
+  llm: LLMService;
   mode: 'bank' | 'wrong';
   order: 'seq' | 'random';
   onDone: () => void;
@@ -79,7 +84,7 @@ function evaluate(q: ParsedQuestion, chosen: string[]): boolean | null {
   return null;
 }
 
-export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps) {
+export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenProps) {
   const [stage, setStage] = useState<Stage>('loading');
   const [questions, setQuestions] = useState<ParsedQuestion[]>([]);
   const [idx, setIdx] = useState(0);
@@ -89,6 +94,14 @@ export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps)
   const [showImage, setShowImage] = useState(false);
   const [showFigure, setShowFigure] = useState(false);
   const [orderState, setOrderState] = useState<'seq' | 'random'>(order);
+  const [explain, setExplain] = useState<{
+    loading: boolean;
+    text: string | null;
+    error: string | null;
+    evidence: RagEvidence[];
+    usedLibrary: boolean;
+  } | null>(null);
+  const [adopted, setAdopted] = useState(false);
 
   const loadQuestions = useCallback(
     async (ord: 'seq' | 'random') => {
@@ -118,6 +131,8 @@ export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps)
   const next = useCallback(() => {
     setChosen([]);
     setResult(null);
+    setExplain(null);
+    setAdopted(false);
     if (idx + 1 >= questions.length) {
       setStage('finished');
       return;
@@ -169,6 +184,57 @@ export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps)
     setSession((s) => ({ ...s, skipped: s.skipped + 1 }));
     next();
   }, [next]);
+
+  /** F7/F9b：AI 讲解——优先用教材依据（RAG），无有效命中时降级为普通讲解 */
+  const runExplain = useCallback(async () => {
+    if (!q) return;
+    setExplain({ loading: true, text: null, error: null, evidence: [], usedLibrary: false });
+    try {
+      const input = { stem: q.stem, options: q.options, answerText: q.answerText };
+      const hits = await searchMaterialsSmart(db, `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`, 5);
+      const evidence: RagEvidence[] = hits.map((h, i) => ({
+        index: i + 1,
+        text: h.text.slice(0, 300),
+        source: `${h.materialName}${h.sourceLoc ? ` · ${h.sourceLoc}` : ''}`,
+      }));
+      const prompt = evidence.length > 0 ? renderRagPrompt(input, evidence) : renderExplainPrompt(input);
+      const r = await llm.complete(prompt, { model: TEXT_MODEL, temperature: 0.3, maxTokens: 1024, timeoutMs: 60000 });
+      if (!r.ok || !r.content || !r.content.trim()) {
+        setExplain({
+          loading: false,
+          text: null,
+          error: r.error?.userMessage ?? '生成失败',
+          evidence: [],
+          usedLibrary: evidence.length > 0,
+        });
+        return;
+      }
+      setExplain({ loading: false, text: r.content.trim(), error: null, evidence, usedLibrary: evidence.length > 0 });
+    } catch (e) {
+      setExplain({ loading: false, text: null, error: String((e as Error)?.message ?? e), evidence: [], usedLibrary: false });
+    }
+  }, [db, llm, q]);
+
+  const feedbackWrong = useCallback(async () => {
+    if (!q) return;
+    try {
+      await recordAiFeedback(db, q.id);
+      Alert.alert('已记录', '感谢反馈。');
+    } catch {
+      Alert.alert('记录失败');
+    }
+  }, [db, q]);
+
+  const adopt = useCallback(async () => {
+    if (!q || !explain?.text) return;
+    try {
+      await setQuestionAnalysis(db, q.id, explain.text);
+      setAdopted(true);
+      Alert.alert('已采纳', '讲解已写入该题解析（标记为用户确认）。');
+    } catch (e) {
+      Alert.alert('采纳失败', String((e as Error)?.message ?? e));
+    }
+  }, [db, q, explain]);
 
   if (stage === 'loading') {
     return (
@@ -275,6 +341,60 @@ export function PracticeScreen({ db, mode, order, onDone }: PracticeScreenProps)
               <Text style={styles.warnText}>该题暂无答案，无法自动判定（可在"导入历史"里补充答案后重新校验）</Text>
             )}
             {q.analysis ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
+            {explain === null && (
+              <Pressable style={styles.explainBtn} onPress={() => void runExplain()}>
+                <Text style={styles.explainBtnText}>AI 讲解</Text>
+              </Pressable>
+            )}
+            {explain?.loading && (
+              <View style={styles.explainLoading}>
+                <ActivityIndicator size="small" />
+                <Text style={styles.explainLoadingText}>正在生成讲解…</Text>
+              </View>
+            )}
+            {explain?.error ? (
+              <>
+                <Text style={styles.explainError}>讲解生成失败：{explain.error}</Text>
+                <Pressable style={styles.explainBtn} onPress={() => void runExplain()}>
+                  <Text style={styles.explainBtnText}>重试讲解</Text>
+                </Pressable>
+              </>
+            ) : null}
+            {explain?.text ? (
+              <View style={styles.explainCard}>
+                <Text style={styles.explainText}>{explain.text}</Text>
+                {explain.evidence.length > 0 ? (
+                  <View style={styles.evidenceBox}>
+                    <Text style={styles.evidenceTitle}>教材依据</Text>
+                    {explain.evidence.map((e) => (
+                      <View key={e.index} style={styles.evidenceItem}>
+                        <Text style={styles.evidenceSource}>
+                          [{e.index}] {e.source}
+                        </Text>
+                        <Text style={styles.evidenceText} numberOfLines={3}>
+                          {e.text}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.noLibrary}>（未引用教材：教材库为空或没有命中内容）</Text>
+                )}
+                <Text style={styles.aiWarn}>AI 生成内容，仅供参考</Text>
+                <View style={styles.explainActions}>
+                  <Pressable style={styles.smallBtn} onPress={() => void feedbackWrong()}>
+                    <Text style={styles.smallBtnText}>反馈有误</Text>
+                  </Pressable>
+                  {!adopted ? (
+                    <Pressable style={styles.smallBtn} onPress={() => void adopt()}>
+                      <Text style={styles.smallBtnText}>采纳为解析</Text>
+                    </Pressable>
+                  ) : (
+                    <Text style={styles.adoptedTag}>已采纳为解析</Text>
+                  )}
+                </View>
+              </View>
+            ) : null}
             {q.sourceImage ? (
               <Pressable style={styles.srcBtn} onPress={() => setShowImage(true)}>
                 <Text style={styles.srcBtnText}>查看来源图</Text>
@@ -356,6 +476,24 @@ const styles = StyleSheet.create({
   badText: { fontSize: 16, fontWeight: '800', color: '#c02a2a' },
   warnText: { fontSize: 14, color: '#b8860b', lineHeight: 20 },
   analysisText: { marginTop: 10, fontSize: 14, color: '#444', lineHeight: 21 },
+  explainBtn: { marginTop: 12, alignSelf: 'flex-start', backgroundColor: '#eef3fb', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9 },
+  explainBtnText: { color: '#31518a', fontSize: 13, fontWeight: '700' },
+  explainLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  explainLoadingText: { fontSize: 13, color: '#66707f' },
+  explainError: { marginTop: 12, fontSize: 13, color: '#c02a2a', lineHeight: 19 },
+  explainCard: { marginTop: 12, backgroundColor: '#f8fafd', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#dbe5f3' },
+  explainText: { fontSize: 14, color: '#333', lineHeight: 22 },
+  evidenceBox: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#e3ebf7', paddingTop: 10 },
+  evidenceTitle: { fontSize: 12, color: '#66707f', fontWeight: '700' },
+  evidenceItem: { marginTop: 8, backgroundColor: '#fff', borderRadius: 8, padding: 10 },
+  evidenceSource: { fontSize: 11, color: '#31518a' },
+  evidenceText: { marginTop: 4, fontSize: 12, color: '#555', lineHeight: 18 },
+  noLibrary: { marginTop: 10, fontSize: 11, color: '#98a2b3' },
+  aiWarn: { marginTop: 10, fontSize: 11, color: '#b8860b' },
+  explainActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+  smallBtn: { borderRadius: 8, borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 7 },
+  smallBtnText: { color: '#31518a', fontSize: 12 },
+  adoptedTag: { fontSize: 12, color: '#0a7d33', fontWeight: '700' },
   srcBtn: { marginTop: 12, alignSelf: 'flex-start', backgroundColor: '#e8f0ff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   srcBtnText: { color: '#1c5cd6', fontSize: 13, fontWeight: '700' },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 26, paddingTop: 8 },

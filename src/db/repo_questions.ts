@@ -135,6 +135,11 @@ export async function countQuestions(db: SQLiteDatabase, bankId: string): Promis
   return row?.c ?? 0;
 }
 
+/** 采纳 AI 讲解为解析（F7：仅用户主动采纳时写入） */
+export async function setQuestionAnalysis(db: SQLiteDatabase, id: string, analysis: string): Promise<void> {
+  await db.runAsync('UPDATE questions SET analysis = ?, updated_at = ? WHERE id = ?', analysis, new Date().toISOString(), id);
+}
+
 /** 编辑已入库题目（题干/选项/答案/校验状态），并同步 FTS 索引 */
 export async function updateQuestionContent(
   db: SQLiteDatabase,

@@ -4,6 +4,7 @@
  * 短于 3 字符的查询 MATCH 返回 0 条，必须走参数化 LIKE 回退。
  */
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { buildSearchTerms } from '../core/searchTerms';
 
 export interface SearchHit {
   refId: string;
@@ -66,4 +67,47 @@ export async function indexQuestion(db: SQLiteDatabase, id: string, stem: string
 
 export async function indexMaterialChunk(db: SQLiteDatabase, id: string, content: string): Promise<void> {
   await db.runAsync('INSERT INTO materials_fts(content, ref_id) VALUES(?, ?)', content, id);
+}
+
+export interface MaterialHit {
+  chunkId: string;
+  text: string;
+  sourceLoc: string | null;
+  materialName: string;
+}
+
+/**
+ * 教材检索（F9b）：题目文本 → 片段 OR 查询 → bm25 排序取前 N。
+ * 命中不足时不凑数（返回实际命中数）；无命中返回空数组（调用方降级 F7）。
+ */
+export async function searchMaterialsSmart(
+  db: SQLiteDatabase,
+  questionText: string,
+  limit = 5,
+): Promise<MaterialHit[]> {
+  const terms = buildSearchTerms(questionText);
+  if (terms.length === 0) return [];
+  const query = terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' OR ');
+  const rows = await db.getAllAsync<{
+    ref_id: string;
+    content: string;
+    source_loc: string | null;
+    material_name: string;
+  }>(
+    `SELECT f.ref_id, f.content, c.source_loc, m.name AS material_name
+       FROM materials_fts f
+       JOIN material_chunks c ON c.id = f.ref_id
+       JOIN materials m ON m.id = c.material_id
+      WHERE materials_fts MATCH ?
+      ORDER BY bm25(materials_fts)
+      LIMIT ?`,
+    query,
+    limit,
+  );
+  return rows.map((r) => ({
+    chunkId: r.ref_id,
+    text: r.content,
+    sourceLoc: r.source_loc,
+    materialName: r.material_name,
+  }));
 }

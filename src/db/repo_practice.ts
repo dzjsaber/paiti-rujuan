@@ -8,6 +8,7 @@
  */
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { QuestionRow } from './repo_questions';
+import { newId } from '../core/ids';
 
 export interface WrongBookEntry {
   question_id: string;
@@ -93,4 +94,19 @@ export function shuffleInPlace<T>(arr: T[]): T[] {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+/** AI 讲解"反馈有误"本地记录（F7） */
+export async function recordAiFeedback(
+  db: SQLiteDatabase,
+  questionId: string,
+  kind = 'explain_wrong',
+): Promise<void> {
+  await db.runAsync(
+    'INSERT INTO ai_feedback(id, question_id, kind, created_at) VALUES(?,?,?,?)',
+    newId('fb'),
+    questionId,
+    kind,
+    new Date().toISOString(),
+  );
 }

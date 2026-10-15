@@ -132,7 +132,7 @@ export default function App() {
       )}
       {screen.name === 'materials' && <MaterialScreen db={db} onBack={goHome} />}
       {screen.name === 'practice' && (
-        <PracticeScreen db={db} mode={screen.mode} order={screen.order} onDone={goHome} />
+        <PracticeScreen db={db} llm={llm} mode={screen.mode} order={screen.order} onDone={goHome} />
       )}
       {screen.name === 'wrongbook' && (
         <WrongBookScreen

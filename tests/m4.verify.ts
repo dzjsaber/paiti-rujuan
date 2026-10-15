@@ -1,0 +1,71 @@
+/** M4 纯逻辑验证：检索片段提取 + 讲解 prompt 构造。运行：npx tsx tests/m4.verify.ts */
+import { buildSearchTerms } from '../src/core/searchTerms';
+import { renderExplainPrompt } from '../src/prompts/explain';
+import { renderRagPrompt, type RagEvidence } from '../src/prompts/ragExplain';
+
+let passed = 0;
+const fails: string[] = [];
+function check(name: string, fn: () => void): void {
+  try {
+    fn();
+    passed += 1;
+  } catch (e) {
+    fails.push(`${name}: ${(e as Error).message}`);
+  }
+}
+function assert(cond: unknown, msg: string): void {
+  if (!cond) throw new Error(msg);
+}
+
+check('buildSearchTerms：标点切分、短片段过滤、去重、上限', () => {
+  const terms = buildSearchTerms('已知点A在函数y=6/x的图象上，且x1<0<x2，则下列结论正确的是（ ）');
+  assert(terms.length > 0, '应有片段');
+  assert(terms.every((t) => t.length >= 3), '片段应 ≥3 字');
+  assert(terms.length <= 8, '不超过 8 个');
+  const long = buildSearchTerms('这是一个非常非常非常非常非常长的连续中文句子没有标点'.repeat(3));
+  assert(long.every((t) => t.length <= 12), '过长片段应截断到 12 字');
+  assert(buildSearchTerms('ab').length === 0, '全部过短时返回空');
+});
+
+check('renderExplainPrompt：包含题干/选项/答案与关键要求', () => {
+  const p = renderExplainPrompt({
+    stem: '下列计算正确的是',
+    options: [
+      { id: 'A', text: '1+1=2' },
+      { id: 'B', text: '1+1=3' },
+    ],
+    answerText: 'A',
+  });
+  assert(p.includes('下列计算正确的是'), '含题干');
+  assert(p.includes('A. 1+1=2') && p.includes('B. 1+1=3'), '含选项');
+  assert(p.includes('已知答案：A'), '含答案');
+  assert(p.includes('300'), '含字数要求');
+  assert(p.includes('禁止编造'), '含防编造要求');
+});
+
+check('renderExplainPrompt：判断题（无选项）', () => {
+  const p = renderExplainPrompt({ stem: '该说法正确。', options: [], answerText: '正确' });
+  assert(p.includes('（判断题）'), '应标注判断题');
+  assert(p.includes('已知答案：正确'), '含答案');
+});
+
+check('renderRagPrompt：依据编号/来源/固定回复要求', () => {
+  const evidence: RagEvidence[] = [
+    { index: 1, text: '教材片段一', source: '数学教材 · 第 10 页' },
+    { index: 2, text: '教材片段二', source: '数学教材 · 第 12 页' },
+  ];
+  const p = renderRagPrompt({ stem: '题干', options: [{ id: 'A', text: '甲' }], answerText: '' }, evidence);
+  assert(p.includes('[1]（来源：数学教材 · 第 10 页）'), '含依据编号与来源');
+  assert(p.includes('教材片段一') && p.includes('教材片段二'), '含依据正文');
+  assert(p.includes('当前导入教材未覆盖该知识点'), '含固定回复句');
+  assert(p.includes('禁止伪造引用'), '含防伪引用要求');
+  assert(p.includes('（试卷未提供答案）'), '无答案时标注');
+});
+
+const total = passed + fails.length;
+if (fails.length > 0) {
+  console.log(`M4 VERIFY FAILED：${passed}/${total} 通过`);
+  for (const f of fails) console.log('  - ' + f);
+  process.exit(1);
+}
+console.log(`M4 VERIFY PASSED：${total}/${total} 用例全部符合预期`);
