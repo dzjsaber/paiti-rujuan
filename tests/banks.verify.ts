@@ -7,7 +7,13 @@ import { DatabaseSync } from 'node:sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { searchMaterialsSmart } from '../src/db/fts';
 import { MIGRATIONS } from '../src/db/schema';
-import { countAllQuestions, setQuestionExplanation } from '../src/db/repo_questions';
+import {
+  countAllQuestions,
+  rowToQuestion,
+  setQuestionExplanation,
+  updateQuestionContent,
+  type QuestionRow,
+} from '../src/db/repo_questions';
 import {
   createBank,
   deleteBank,
@@ -223,6 +229,23 @@ async function main(): Promise<void> {
     const cleared = await db.getFirstAsync<Row>('SELECT analysis, ai_explanation FROM questions WHERE id = ?', q1);
     assert(cleared?.ai_explanation === null, 'null 应清空 AI 讲解');
     assert(cleared?.analysis === '自带解析', '删除讲解不应影响自带解析');
+  });
+
+  await check('编辑题目：题干/自带解析可更新，AI 讲解不受影响', async () => {
+    const db = freshDb();
+    const q1 = await insertQuestionRow(db, 'bank_default', '原题干');
+    await setQuestionExplanation(db, q1, 'AI 讲解内容');
+    const row = await db.getFirstAsync<QuestionRow>('SELECT * FROM questions WHERE id = ?', q1);
+    if (!row) throw new Error('题目应存在');
+    const draft = rowToQuestion(row);
+    await updateQuestionContent(db, q1, { ...draft, stem: '新题干', analysis: '人工补充的解析' });
+    const after = await db.getFirstAsync<{ stem: string; analysis: string | null; ai_explanation: string | null }>(
+      'SELECT stem, analysis, ai_explanation FROM questions WHERE id = ?',
+      q1,
+    );
+    assert(after?.stem === '新题干', '题干应更新');
+    assert(after?.analysis === '人工补充的解析', '自带解析应更新');
+    assert(after?.ai_explanation === 'AI 讲解内容', 'AI 讲解不应被编辑覆盖');
   });
 
   await check('恢复 v1 备份：题目引用的库不存在时兜底建库，题不丢', async () => {

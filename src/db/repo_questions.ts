@@ -149,7 +149,11 @@ export async function setQuestionExplanation(db: SQLiteDatabase, id: string, tex
   await db.runAsync('UPDATE questions SET ai_explanation = ?, updated_at = ? WHERE id = ?', text, new Date().toISOString(), id);
 }
 
-/** 编辑已入库题目（题干/选项/答案/校验状态），并同步 FTS 索引 */
+/**
+ * 编辑已入库题目（题干/选项/答案/自带解析/校验状态），并同步 FTS 索引。
+ * 不入库 ai_explanation（AI 讲解由练习页单独管理）。
+ * 调用方须传入完整的 draft（含当前 analysis），否则解析会被置空。
+ */
 export async function updateQuestionContent(
   db: SQLiteDatabase,
   id: string,
@@ -157,11 +161,12 @@ export async function updateQuestionContent(
 ): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      `UPDATE questions SET stem = ?, options_json = ?, answer_json = ?, review_status = ?,
+      `UPDATE questions SET stem = ?, options_json = ?, answer_json = ?, analysis = ?, review_status = ?,
         review_reasons_json = ?, question_image_path = ?, updated_at = ? WHERE id = ?`,
       draft.stem,
       JSON.stringify(draft.options ?? []),
       JSON.stringify(draft.answer ?? null),
+      draft.analysis ?? null,
       draft.review_status ?? 'needs_review',
       JSON.stringify(draft.review_reasons ?? []),
       draft.question_image_path ?? null,

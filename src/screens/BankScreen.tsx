@@ -163,7 +163,7 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
       const d = editing.draft;
       const ids = d.options.map((o) => o.id).filter(Boolean);
       const answer = normalizeAnswer(d.type, answerText, ids).answer;
-      const withAnswer: QuestionDraft = { ...d, answer };
+      const withAnswer: QuestionDraft = { ...d, answer, analysis: (d.analysis ?? '').trim() || null };
       const r = f2ValidateQuestion(withAnswer, { normalize: false });
       const updated: QuestionDraft = { ...withAnswer, review_status: r.status, review_reasons: r.issues.map((x) => x.message) };
       await updateQuestionContent(db, editing.id, updated);
@@ -294,6 +294,14 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
             value={answerText}
             placeholder="例如：B 或 A,C 或 对"
             onChangeText={setAnswerText}
+          />
+          <Text style={styles.label}>解析（可选，题目自带解析）</Text>
+          <TextInput
+            style={styles.analysisInput}
+            value={d.analysis ?? ''}
+            multiline
+            placeholder="试卷或教材里带的解析，可手动补充；AI 讲解是独立内容，不在此处"
+            onChangeText={(t) => setEditing({ ...editing, draft: { ...d, analysis: t } })}
           />
           <Text style={styles.hint}>保存时会重新执行确定性校验；填写答案后题目状态变为"已确认"。</Text>
           <Pressable style={[styles.btn, saving && styles.btnDisabled]} onPress={() => void save()} disabled={saving}>
@@ -451,6 +459,16 @@ const styles = StyleSheet.create({
   optId: { width: 24, fontSize: 15, fontWeight: '700', color: '#31518a' },
   optInput: { flex: 1, backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: '#333' },
   answerInput: { marginTop: 6, backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#222' },
+  analysisInput: {
+    marginTop: 6,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+    color: '#222',
+    lineHeight: 21,
+    minHeight: 80,
+  },
   hint: { marginTop: 10, fontSize: 12, color: '#98a2b3', lineHeight: 18 },
   btn: { marginTop: 20, backgroundColor: '#1c5cd6', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   btnDisabled: { opacity: 0.6 },
