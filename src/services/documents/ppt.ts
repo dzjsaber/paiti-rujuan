@@ -8,7 +8,7 @@
  *   中文课件主要使用 UTF-16 的 TextCharsAtom，影响有限；若大量课件丢字再考虑引入 GBK 解码。
  * 限制：仅提取文字；图片、公式、图表不在内。
  */
-import { finalizeExtract, type ExtractResult } from './docCommon';
+import { finalizeExtract, type ExtractResult, type ExtractedImage } from './docCommon';
 
 const FREESECT = 0xffffffff;
 const ENDOFCHAIN = 0xfffffffe;
@@ -204,5 +204,46 @@ export function pptBytesToText(bytes: Uint8Array): ExtractResult {
   walkRecords(stream, 0, stream.length, ctx, 0);
   flushPage(ctx);
   const marked = ctx.pages.map((t, i) => `【第 ${i + 1} 页】\n${t}`);
-  return finalizeExtract(marked.join('\n\n'), ctx.pages.length);
+  // 图片：Pictures 流按 JPEG/PNG 签名启发式扫描（老格式无法可靠关联页码，pageNo=null）
+  let images: ExtractedImage[] = [];
+  try {
+    const pics = readCfbStream(bytes, 'Pictures');
+    images = scanPicturesStream(pics);
+  } catch {
+    /* 无 Pictures 流 */
+  }
+  return { ...finalizeExtract(marked.join('\n\n'), ctx.pages.length), images };
+}
+
+function scanPicturesStream(stream: Uint8Array): ExtractedImage[] {
+  const out: ExtractedImage[] = [];
+  const MAX = 300;
+  let i = 0;
+  while (i < stream.length - 8 && out.length < MAX) {
+    if (stream[i] === 0xff && stream[i + 1] === 0xd8 && stream[i + 2] === 0xff) {
+      let j = i + 2;
+      while (j < stream.length - 1 && !(stream[j] === 0xff && stream[j + 1] === 0xd9)) j++;
+      if (j < stream.length - 1) {
+        const img = stream.subarray(i, j + 2);
+        if (img.length > 256) out.push({ pageNo: null, ext: 'jpg', data: img });
+        i = j + 2;
+        continue;
+      }
+    }
+    if (stream[i] === 0x89 && stream[i + 1] === 0x50 && stream[i + 2] === 0x4e && stream[i + 3] === 0x47) {
+      let j = i + 8;
+      // IEND 为 4 字节标记，允许它落在倒数第 4-8 字节（图片紧贴流尾的情况）
+      while (j < stream.length - 3 && !(stream[j] === 0x49 && stream[j + 1] === 0x45 && stream[j + 2] === 0x4e && stream[j + 3] === 0x44)) {
+        j++;
+      }
+      if (j < stream.length - 3) {
+        const img = stream.subarray(i, Math.min(j + 8, stream.length));
+        if (img.length > 256) out.push({ pageNo: null, ext: 'png', data: img });
+        i = j + 8;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return out;
 }

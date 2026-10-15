@@ -15,6 +15,15 @@ export interface MaterialRow {
 
 export interface MaterialSummary extends MaterialRow {
   chunk_count: number;
+  image_count: number;
+}
+
+export interface MaterialImageRow {
+  id: string;
+  material_id: string;
+  page_no: number | null;
+  file_path: string;
+  created_at: string;
 }
 
 export interface MaterialChunkRow {
@@ -65,11 +74,41 @@ export async function addMaterialChunks(
 
 export async function listMaterials(db: SQLiteDatabase): Promise<MaterialSummary[]> {
   return db.getAllAsync<MaterialSummary>(
-    `SELECT m.id, m.name, m.file_path, m.created_at, COUNT(c.id) AS chunk_count
+    `SELECT m.id, m.name, m.file_path, m.created_at,
+            (SELECT COUNT(*) FROM material_chunks c WHERE c.material_id = m.id) AS chunk_count,
+            (SELECT COUNT(*) FROM material_images i WHERE i.material_id = m.id) AS image_count
        FROM materials m
-       LEFT JOIN material_chunks c ON c.material_id = m.id
-      GROUP BY m.id
       ORDER BY m.created_at DESC`,
+  );
+}
+
+/** 批量登记教材图片（文件由调用方写入私有目录） */
+export async function addMaterialImages(
+  db: SQLiteDatabase,
+  materialId: string,
+  images: { pageNo: number | null; filePath: string }[],
+): Promise<number> {
+  if (images.length === 0) return 0;
+  const now = new Date().toISOString();
+  await db.withTransactionAsync(async () => {
+    for (const img of images) {
+      await db.runAsync(
+        'INSERT INTO material_images(id, material_id, page_no, file_path, created_at) VALUES(?,?,?,?,?)',
+        newId('mi'),
+        materialId,
+        img.pageNo,
+        img.filePath,
+        now,
+      );
+    }
+  });
+  return images.length;
+}
+
+export async function listMaterialImages(db: SQLiteDatabase, materialId: string): Promise<MaterialImageRow[]> {
+  return db.getAllAsync<MaterialImageRow>(
+    'SELECT * FROM material_images WHERE material_id = ? ORDER BY page_no, id',
+    materialId,
   );
 }
 
@@ -102,5 +141,13 @@ export async function deleteMaterial(db: SQLiteDatabase, materialId: string, fil
     } catch {
       /* 文件清理失败不阻塞 */
     }
+  }
+  // 教材图片目录（按约定：materials/images/<materialId>/）
+  try {
+    await FileSystemLegacy.deleteAsync(`${FileSystemLegacy.documentDirectory}materials/images/${materialId}/`, {
+      idempotent: true,
+    });
+  } catch {
+    /* 目录清理失败不阻塞 */
   }
 }

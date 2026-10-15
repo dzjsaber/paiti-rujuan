@@ -163,6 +163,19 @@ ALTER TABLE import_batches_new RENAME TO import_batches;
 PRAGMA foreign_keys = ON;
 `,
   },
+  {
+    version: 4,
+    name: '004_material_images',
+    // 教材内嵌图片（PPT/PPTX 按页提取）：文件存应用私有目录，表里记路径
+    sql: `CREATE TABLE IF NOT EXISTS material_images (
+  id TEXT PRIMARY KEY,
+  material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+  page_no INTEGER,
+  file_path TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_material_images ON material_images(material_id);`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

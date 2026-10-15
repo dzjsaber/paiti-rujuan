@@ -4,6 +4,14 @@ export interface ExtractResult {
   text: string;
   pageCount: number | null;
   warnings: string[];
+  /** 内嵌图片（仅 PPT/PPTX 支持）：pageNo 为来源页码，老版 .ppt 无页关联时为 null */
+  images?: ExtractedImage[];
+}
+
+export interface ExtractedImage {
+  pageNo: number | null;
+  ext: string;
+  data: Uint8Array;
 }
 
 export const SCAN_WARN_CHARS = 100;

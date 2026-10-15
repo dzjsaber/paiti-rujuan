@@ -3,20 +3,24 @@
  * 列表、来源查看、删除（级联清理分块/索引/本地原文件）。
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   addMaterialChunks,
+  addMaterialImages,
   createMaterial,
   deleteMaterial,
   listMaterialChunks,
+  listMaterialImages,
   listMaterials,
   type MaterialChunkRow,
+  type MaterialImageRow,
   type MaterialSummary,
 } from '../db/repo_materials';
 import { MATERIAL_BOUNDARY, chunkDocument } from '../services/documents/chunker';
+import type { ExtractedImage } from '../services/documents/docCommon';
 import { extractDocument } from '../services/documents/extractors';
 
 type Stage = 'list' | 'importing' | 'view';
@@ -43,11 +47,57 @@ async function saveMaterialFile(srcUri: string, name: string): Promise<string | 
   }
 }
 
+const B64_ENC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function bytesToBase64(d: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < d.length; i += 3) {
+    const b1 = d[i];
+    const b2 = i + 1 < d.length ? d[i + 1] : -1;
+    const b3 = i + 2 < d.length ? d[i + 2] : -1;
+    out += B64_ENC[b1 >> 2];
+    out += B64_ENC[((b1 & 3) << 4) | ((b2 >= 0 ? b2 : 0) >> 4)];
+    out += b2 >= 0 ? B64_ENC[((b2 & 15) << 2) | ((b3 >= 0 ? b3 : 0) >> 6)] : '=';
+    out += b3 >= 0 ? B64_ENC[b3 & 63] : '=';
+  }
+  return out;
+}
+
+/** 内嵌图片写入私有目录 materials/images/<materialId>/（单张失败跳过，不阻塞导入） */
+async function saveMaterialImages(
+  materialId: string,
+  images: ExtractedImage[],
+): Promise<{ pageNo: number | null; filePath: string }[]> {
+  const dir = `${FileSystemLegacy.documentDirectory}materials/images/${materialId}/`;
+  try {
+    const info = await FileSystemLegacy.getInfoAsync(dir);
+    if (!info.exists) await FileSystemLegacy.makeDirectoryAsync(dir, { intermediates: true });
+  } catch {
+    return [];
+  }
+  const out: { pageNo: number | null; filePath: string }[] = [];
+  let idx = 0;
+  for (const img of images) {
+    try {
+      idx += 1;
+      const filePath = `${dir}img_${img.pageNo ?? 'x'}_${idx}.${img.ext}`;
+      await FileSystemLegacy.writeAsStringAsync(filePath, bytesToBase64(img.data), {
+        encoding: FileSystemLegacy.EncodingType.Base64,
+      });
+      out.push({ pageNo: img.pageNo, filePath });
+    } catch {
+      /* 单张失败跳过 */
+    }
+  }
+  return out;
+}
+
 export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
   const [stage, setStage] = useState<Stage>('list');
   const [materials, setMaterials] = useState<MaterialSummary[]>([]);
   const [progress, setProgress] = useState('');
-  const [viewing, setViewing] = useState<{ name: string; chunks: MaterialChunkRow[] } | null>(null);
+  const [viewing, setViewing] = useState<{ name: string; chunks: MaterialChunkRow[]; images: MaterialImageRow[] } | null>(null);
+  const [viewingImageUri, setViewingImageUri] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -94,10 +144,17 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
         id,
         chunks.map((c) => ({ content: c.text, sourceLoc: `字符 ${c.charStart}-${c.charEnd}` })),
       );
+      // 内嵌图片（PPT/PPTX 支持）
+      let imgSaved = 0;
+      if (r.images && r.images.length > 0) {
+        setProgress(`正在保存 ${r.images.length} 张内嵌图片…`);
+        const saved = await saveMaterialImages(id, r.images);
+        imgSaved = await addMaterialImages(db, id, saved);
+      }
       await refresh();
       setStage('list');
       const warn = r.warnings.length > 0 ? '\n\n提示：' + r.warnings.join('\n') : '';
-      Alert.alert('导入完成', `${a.name}\n共 ${n} 段（每段约 500-800 字符）${warn}`);
+      Alert.alert('导入完成', `${a.name}\n共 ${n} 段${imgSaved > 0 ? `、${imgSaved} 张内嵌图片` : ''}（每段约 500-800 字符）${warn}`);
     } catch (e) {
       setStage('list');
       Alert.alert('导入失败', String((e as Error)?.message ?? e));
@@ -131,7 +188,8 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
     async (m: MaterialSummary) => {
       try {
         const chunks = await listMaterialChunks(db, m.id, 200, 0);
-        setViewing({ name: m.name, chunks });
+        const images = await listMaterialImages(db, m.id);
+        setViewing({ name: m.name, chunks, images });
         setStage('view');
       } catch (e) {
         Alert.alert('读取失败', String((e as Error)?.message ?? e));
@@ -162,9 +220,24 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
           <View style={styles.spacer} />
         </View>
         <Text style={styles.viewName}>
-          {viewing.name} · 共 {viewing.chunks.length} 段（最多显示 200 段）
+          {viewing.name} · 共 {viewing.chunks.length} 段{viewing.images.length > 0 ? ` · ${viewing.images.length} 张内嵌图片` : ''}
         </Text>
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+          {viewing.images.length > 0 && (
+            <View style={styles.imgSection}>
+              <Text style={styles.sectionTitle}>内嵌图片（点击放大）</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbRow}>
+                {viewing.images.map((img) => (
+                  <Pressable key={img.id} onPress={() => setViewingImageUri(img.file_path)}>
+                    <View style={styles.thumbWrap}>
+                      <Image source={{ uri: img.file_path }} style={styles.thumb} resizeMode="cover" />
+                      <Text style={styles.thumbLabel}>{img.page_no ? `第 ${img.page_no} 页` : '素材图'}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
           {viewing.chunks.map((c, i) => (
             <View key={c.id} style={styles.chunkCard}>
               <Text style={styles.chunkMeta}>
@@ -176,6 +249,14 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
             </View>
           ))}
         </ScrollView>
+        <Modal visible={!!viewingImageUri} transparent onRequestClose={() => setViewingImageUri(null)}>
+          <View style={styles.modalBg}>
+            {viewingImageUri ? <Image source={{ uri: viewingImageUri }} style={styles.modalImage} resizeMode="contain" /> : null}
+            <Pressable style={styles.modalClose} onPress={() => setViewingImageUri(null)}>
+              <Text style={styles.modalCloseText}>关闭</Text>
+            </Pressable>
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -204,7 +285,7 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
                 {m.name}
               </Text>
               <Text style={styles.cardMeta}>
-                {m.chunk_count} 段 · {m.created_at.slice(0, 10)}
+                {m.chunk_count} 段{m.image_count > 0 ? ` · ${m.image_count} 张图` : ''} · {m.created_at.slice(0, 10)}
                 {m.file_path ? ' · 原文件已保存' : ' · 原文件未保存'}
               </Text>
             </Pressable>
@@ -243,4 +324,14 @@ const styles = StyleSheet.create({
   chunkCard: { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8 },
   chunkMeta: { fontSize: 11, color: '#98a2b3' },
   chunkText: { marginTop: 6, fontSize: 13, color: '#333', lineHeight: 19 },
+  imgSection: { marginBottom: 6 },
+  sectionTitle: { fontSize: 12, color: '#66707f', marginBottom: 8 },
+  thumbRow: { gap: 10, paddingRight: 8 },
+  thumbWrap: { alignItems: 'center' },
+  thumb: { width: 128, height: 88, borderRadius: 8, backgroundColor: '#eef1f6' },
+  thumbLabel: { marginTop: 4, fontSize: 11, color: '#8a94a6' },
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' },
+  modalImage: { width: '100%', height: '85%' },
+  modalClose: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 32, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)' },
+  modalCloseText: { color: '#fff', fontSize: 15 },
 });

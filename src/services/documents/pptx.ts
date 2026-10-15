@@ -5,7 +5,7 @@
  * 注意：仅提取文字；图片、图表、公式（OMML）不包含在内。
  */
 import { strFromU8, unzipSync } from 'fflate';
-import { finalizeExtract, type ExtractResult } from './docCommon';
+import { finalizeExtract, type ExtractResult, type ExtractedImage } from './docCommon';
 
 function decodeXmlEntities(s: string): string {
   return s
@@ -18,6 +18,11 @@ function decodeXmlEntities(s: string): string {
 }
 
 export function pptxBytesToText(bytes: Uint8Array): ExtractResult {
+  return pptxBytesToTextAndImages(bytes);
+}
+
+/** 文本 + 内嵌图片（按页提取；页内按 blip 引用顺序；emf/wmf 等 RN 不可渲染格式跳过） */
+export function pptxBytesToTextAndImages(bytes: Uint8Array): ExtractResult {
   const files = unzipSync(bytes);
   const slideNames = Object.keys(files)
     .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
@@ -27,7 +32,10 @@ export function pptxBytesToText(bytes: Uint8Array): ExtractResult {
       return na - nb;
     });
   const parts: string[] = [];
+  const images: ExtractedImage[] = [];
+  let pageNo = 0;
   for (const name of slideNames) {
+    pageNo += 1;
     const xml = strFromU8(files[name]);
     const paragraphs = xml.split(/<a:p[\s>]/).slice(1);
     const lines: string[] = [];
@@ -37,7 +45,30 @@ export function pptxBytesToText(bytes: Uint8Array): ExtractResult {
       if (line) lines.push(line);
     }
     const text = lines.join('\n');
-    if (text) parts.push(`【第 ${parts.length + 1} 页】\n${text}`);
+    if (text) parts.push(`【第 ${pageNo} 页】\n${text}`);
+
+    // 内嵌图片：slide xml 的 blip 引用顺序 → rels → media 文件
+    const slideFile = name.split('/').pop() ?? '';
+    const relsXml = files[`ppt/slides/_rels/${slideFile}.rels`] ? strFromU8(files[`ppt/slides/_rels/${slideFile}.rels`]) : '';
+    const relMap = new Map<string, string>();
+    for (const m of relsXml.matchAll(/<Relationship\b[^>]*>/g)) {
+      const seg = m[0];
+      const idM = /Id="([^"]+)"/.exec(seg);
+      const tM = /Target="([^"]+)"/.exec(seg);
+      if (idM && tM) relMap.set(idM[1], tM[1]);
+    }
+    const seen = new Set<string>();
+    for (const bm of xml.matchAll(/<a:blip\b[^>]*r:embed="([^"]+)"/g)) {
+      const target = relMap.get(bm[1]);
+      if (!target || seen.has(target)) continue;
+      seen.add(target);
+      const mediaPath = target.startsWith('../') ? `ppt/${target.slice(3)}` : target.replace(/^\//, '');
+      const file = files[mediaPath];
+      if (!file || file.length > 10 * 1024 * 1024 || file.length < 256) continue;
+      const rawExt = (mediaPath.split('.').pop() ?? 'png').toLowerCase();
+      if (!['png', 'jpg', 'jpeg', 'gif', 'bmp'].includes(rawExt)) continue;
+      images.push({ pageNo, ext: rawExt === 'jpeg' ? 'jpg' : rawExt, data: file });
+    }
   }
-  return finalizeExtract(parts.join('\n\n'), slideNames.length);
+  return { ...finalizeExtract(parts.join('\n\n'), slideNames.length), images };
 }
