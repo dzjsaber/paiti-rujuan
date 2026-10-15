@@ -100,10 +100,6 @@ export function SettingsScreen({ onBack, onOpenSelfTest }: SettingsScreenProps) 
         <Text style={styles.btnGhostText}>运行技术自检（SQLite / 图片压缩）</Text>
       </Pressable>
 
-      <Text style={styles.privacy}>
-        隐私说明：试卷图片会在本地压缩后发送至智谱识别接口用于提取题目；题库与教材数据默认保存在本机；
-        AI 讲解只发送当前题目所需文本。不会向任何第三方图床传输图片。
-      </Text>
     </View>
   );
 }
@@ -130,7 +126,6 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   btnGhost: { marginTop: 10, borderRadius: 10, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
   btnGhostText: { color: '#31518a', fontSize: 14 },
-  privacy: { marginTop: 24, fontSize: 11, color: '#8a94a6', lineHeight: 17 },
   tierCard: {
     marginTop: 10,
     backgroundColor: '#fff',

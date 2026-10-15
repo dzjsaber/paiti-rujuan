@@ -97,7 +97,7 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
       await refresh();
       setStage('list');
       const warn = r.warnings.length > 0 ? '\n\n提示：' + r.warnings.join('\n') : '';
-      Alert.alert('导入完成', `${a.name}\n共 ${n} 段（每段约 500-800 字符，仅保存在本机）${warn}`);
+      Alert.alert('导入完成', `${a.name}\n共 ${n} 段（每段约 500-800 字符）${warn}`);
     } catch (e) {
       setStage('list');
       Alert.alert('导入失败', String((e as Error)?.message ?? e));
@@ -145,7 +145,6 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
       <View style={styles.center}>
         <ActivityIndicator size="large" />
         <Text style={styles.centerText}>{progress}</Text>
-        <Text style={styles.centerHint}>教材内容仅保存在本机，导入过程不调用任何云端模型。</Text>
       </View>
     );
   }
@@ -192,7 +191,7 @@ export function MaterialScreen({ db, onBack }: MaterialScreenProps) {
           <Text style={styles.importBtn}>＋ 导入</Text>
         </Pressable>
       </View>
-      <Text style={styles.hint}>教材用于 AI 讲解的知识引用（后续功能）。内容与索引仅保存在本机，删除教材会同时清理原文件与索引。</Text>
+      <Text style={styles.hint}>教材用于 AI 讲解的知识引用（后续功能）。删除教材会同时清理分段、索引与原文件。</Text>
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {materials.length === 0 && (

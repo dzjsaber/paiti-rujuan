@@ -5,7 +5,7 @@
  * 不得暗中发送。分块切题复用 chunker（题目边界优先），答案表映射为本地确定性逻辑。
  */
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { buildDraftsWithF2 } from '../core/draftBuild';
@@ -43,7 +43,6 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
   const [extract, setExtract] = useState<ExtractResult | null>(null);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
-  const [showPrivacy, setShowPrivacy] = useState(false);
   const cancelRef = useRef(false);
 
   const pick = useCallback(async () => {
@@ -88,7 +87,6 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
   );
 
   const startStructuring = useCallback(async () => {
-    setShowPrivacy(false);
     if (!extract) return;
     setStage('structuring');
     cancelRef.current = false;
@@ -163,10 +161,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
         </View>
         <View style={styles.center}>
           <Text style={styles.centerText}>支持 PDF / DOCX / PPTX / TXT / MD（文字版）</Text>
-          <Text style={styles.centerHint}>
-            纯文本提取在本地完成；结构化切题需要把文本片段发送给智谱 AI（发送前会再次征求你确认）。{'\n'}
-            扫描版（图片型）文件请改用"拍照识别"。
-          </Text>
+          <Text style={styles.centerHint}>扫描版（图片型）文件请改用"拍照识别"。</Text>
           <Pressable style={styles.primaryBtn} onPress={() => void pick()}>
             <Text style={styles.primaryBtnText}>选择文件</Text>
           </Pressable>
@@ -261,41 +256,12 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           {(extract?.text.length ?? 0) > 3000 ? '\n\n…（仅预览前 3000 字符，处理时会使用全文）' : ''}
         </Text>
       </ScrollView>
-      <Pressable style={styles.primaryBtnWide} onPress={() => setShowPrivacy(true)}>
+      <Pressable style={styles.primaryBtnWide} onPress={() => void startStructuring()}>
         <Text style={styles.primaryBtnText}>云端结构化切题</Text>
       </Pressable>
       <Pressable style={styles.ghostBtnWide} onPress={() => setStage('localOnly')}>
         <Text style={styles.ghostBtnText}>仅本地提取（不联网，手动整理）</Text>
       </Pressable>
-
-      <Modal visible={showPrivacy} transparent onRequestClose={() => setShowPrivacy(false)}>
-        <View style={styles.privacyBg}>
-          <View style={styles.privacyCard}>
-            <Text style={styles.privacyTitle}>将向智谱 AI 发送文本</Text>
-            <Text style={styles.privacyBody}>
-              · 发送内容：从该文档提取的纯文本片段（切题所需，不含原文件本身）{'\n'}
-              · 用途：结构化识别题目 / 选项 / 答案{'\n'}
-              · 服务商：智谱 AI（open.bigmodel.cn）{'\n'}
-              · 取消方式：处理中可随时点击"取消"，未开始的片段不会发送
-            </Text>
-            <Pressable style={styles.primaryBtnWide} onPress={() => void startStructuring()}>
-              <Text style={styles.primaryBtnText}>同意并继续</Text>
-            </Pressable>
-            <Pressable
-              style={styles.ghostBtnWide}
-              onPress={() => {
-                setShowPrivacy(false);
-                setStage('localOnly');
-              }}
-            >
-              <Text style={styles.ghostBtnText}>仅本地提取（不联网）</Text>
-            </Pressable>
-            <Pressable style={styles.ghostBtnWide} onPress={() => setShowPrivacy(false)}>
-              <Text style={styles.ghostBtnText}>取消</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -322,8 +288,4 @@ const styles = StyleSheet.create({
   ghostBtn: { marginTop: 14, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 44, borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
   ghostBtnWide: { marginTop: 10, borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff' },
   ghostBtnText: { color: '#31518a', fontSize: 14 },
-  privacyBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', paddingHorizontal: 20 },
-  privacyCard: { backgroundColor: '#fff', borderRadius: 16, padding: 18 },
-  privacyTitle: { fontSize: 17, fontWeight: '800', color: '#1a1a1a' },
-  privacyBody: { marginTop: 12, fontSize: 13, color: '#444', lineHeight: 21 },
 });
