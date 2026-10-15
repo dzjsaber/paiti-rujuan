@@ -90,7 +90,6 @@ export default function App() {
           db={db}
           onOpenReview={(p) => setScreen({ name: 'review', mode: 'new', params: p })}
           onOpenSettings={() => setScreen({ name: 'settings' })}
-          onResume={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
           onOpenHistory={() => setScreen({ name: 'history' })}
           onOpenBank={() => setScreen({ name: 'bank' })}
           onOpenDocImport={() => setScreen({ name: 'importdoc' })}

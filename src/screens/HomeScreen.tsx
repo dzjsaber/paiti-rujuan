@@ -4,7 +4,6 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { DEFAULT_BANK_ID } from '../db/database';
-import { deleteBatch, getUnfinishedBatches, type ImportBatchRow } from '../db/repo_imports';
 import { countWrongBook } from '../db/repo_practice';
 import { countQuestions } from '../db/repo_questions';
 
@@ -19,8 +18,6 @@ export interface HomeScreenProps {
   db: SQLiteDatabase;
   onOpenReview: (p: ReviewParams) => void;
   onOpenSettings: () => void;
-  /** 恢复未完成的导入批次（应用被杀/中断后） */
-  onResume: (batchId: string) => void;
   /** 导入历史（每次识别一条记录） */
   onOpenHistory: () => void;
   /** 开始刷题（题库） */
@@ -39,7 +36,6 @@ export function HomeScreen({
   db,
   onOpenReview,
   onOpenSettings,
-  onResume,
   onOpenHistory,
   onOpenPractice,
   onOpenWrongBook,
@@ -49,7 +45,6 @@ export function HomeScreen({
 }: HomeScreenProps) {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<ImportBatchRow[]>([]);
   const [wrongCount, setWrongCount] = useState(0);
 
   const refresh = useCallback(async () => {
@@ -57,11 +52,6 @@ export function HomeScreen({
       setCount(await countQuestions(db, DEFAULT_BANK_ID));
     } catch {
       setCount(null);
-    }
-    try {
-      setPending(await getUnfinishedBatches(db));
-    } catch {
-      setPending([]);
     }
     try {
       setWrongCount(await countWrongBook(db, DEFAULT_BANK_ID));
@@ -117,52 +107,6 @@ export function HomeScreen({
     }
   }, [onOpenReview]);
 
-  const removeBatch = useCallback(
-    (batchId: string) => {
-      Alert.alert('删除这个未完成的导入？', '该批次的所有草稿将被清除，已入库的题目不受影响。', [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '删除',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              try {
-                await deleteBatch(db, batchId);
-                await refresh();
-              } catch (e) {
-                Alert.alert('删除失败', String((e as Error)?.message ?? e));
-              }
-            })();
-          },
-        },
-      ]);
-    },
-    [db, refresh],
-  );
-
-  const removeAll = useCallback(() => {
-    if (pending.length === 0) return;
-    Alert.alert(`删除全部 ${pending.length} 个未完成的导入？`, '已入库的题目不受影响。', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '全部删除',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            try {
-              for (const b of pending) {
-                await deleteBatch(db, b.id);
-              }
-              await refresh();
-            } catch (e) {
-              Alert.alert('删除失败', String((e as Error)?.message ?? e));
-            }
-          })();
-        },
-      },
-    ]);
-  }, [db, pending, refresh]);
-
   return (
     <View style={styles.page}>
       <View style={styles.header}>
@@ -206,29 +150,6 @@ export function HomeScreen({
         </Pressable>
       </View>
 
-      {pending.length > 0 && (
-        <View style={styles.pendingCard}>
-          <View style={styles.pendingHeader}>
-            <Text style={styles.pendingTitle}>未完成的导入（{pending.length}）</Text>
-            <Pressable onPress={removeAll} hitSlop={8}>
-              <Text style={styles.pendingRemoveAll}>全部删除</Text>
-            </Pressable>
-          </View>
-          {pending.map((b) => (
-            <View key={b.id} style={styles.pendingRow}>
-              <Pressable style={styles.pendingItem} onPress={() => onResume(b.id)}>
-                <Text style={styles.pendingText}>
-                  批次 {b.created_at.slice(5, 16).replace('T', ' ')} · 点击继续处理
-                </Text>
-              </Pressable>
-              <Pressable onPress={() => removeBatch(b.id)} hitSlop={8} style={styles.pendingDeleteBtn}>
-                <Text style={styles.pendingRemove}>删除</Text>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      )}
-
       <View style={styles.rowBtns}>
         <Pressable style={styles.rowBtn} onPress={onOpenHistory}>
           <Text style={styles.rowBtnText}>导入历史</Text>
@@ -264,15 +185,6 @@ const styles = StyleSheet.create({
   rowBtns: { flexDirection: 'row', gap: 12, marginTop: 16 },
   rowBtn: { flex: 1, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea' },
   rowBtnText: { color: '#31518a', fontSize: 15, fontWeight: '700' },
-  pendingCard: { marginTop: 22, backgroundColor: '#fff7e6', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#f0d9a8' },
-  pendingHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  pendingTitle: { fontSize: 14, fontWeight: '700', color: '#8a6d1c' },
-  pendingRemoveAll: { fontSize: 12, color: '#c0392b' },
-  pendingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 },
-  pendingItem: { flex: 1, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: '#fff', borderRadius: 8 },
-  pendingText: { fontSize: 13, color: '#6d5a22' },
-  pendingDeleteBtn: { paddingVertical: 8, paddingHorizontal: 10 },
-  pendingRemove: { fontSize: 13, color: '#c0392b' },
   historyBtn: { marginTop: 14, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#cfd9ea' },
   historyBtnText: { color: '#31518a', fontSize: 15, fontWeight: '700' },
   historyBtnHint: { color: '#98a2b3', fontSize: 11, marginTop: 3 },
