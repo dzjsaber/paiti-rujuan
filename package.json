@@ -10,6 +10,7 @@
     "expo-image-manipulator": "~57.0.21",
     "expo-image-picker": "~57.0.20",
     "expo-secure-store": "~57.0.4",
+    "expo-sharing": "~57.0.23",
     "expo-sqlite": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "fflate": "^0.8.3",

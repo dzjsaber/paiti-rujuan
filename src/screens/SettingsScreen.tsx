@@ -7,9 +7,10 @@ import { getModelTier, MODEL_TIERS, saveModelTier, type ModelTier } from '../ser
 export interface SettingsScreenProps {
   onBack: () => void;
   onOpenSelfTest: () => void;
+  onOpenBackup: () => void;
 }
 
-export function SettingsScreen({ onBack, onOpenSelfTest }: SettingsScreenProps) {
+export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: SettingsScreenProps) {
   const [current, setCurrent] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [tier, setTier] = useState<ModelTier>('free');
@@ -98,6 +99,10 @@ export function SettingsScreen({ onBack, onOpenSelfTest }: SettingsScreenProps) 
 
       <Pressable style={styles.btnGhost} onPress={onOpenSelfTest}>
         <Text style={styles.btnGhostText}>运行技术自检（SQLite / 图片压缩）</Text>
+      </Pressable>
+
+      <Pressable style={styles.btnGhost} onPress={onOpenBackup}>
+        <Text style={styles.btnGhostText}>数据备份与恢复</Text>
       </Pressable>
 
     </View>

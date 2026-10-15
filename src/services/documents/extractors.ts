@@ -45,7 +45,7 @@ async function readBytes(uri: string): Promise<Uint8Array> {
   return base64ToBytes(b64);
 }
 
-async function readTextFile(uri: string): Promise<string> {
+export async function readTextFile(uri: string): Promise<string> {
   const local = await materialize(uri, 'txt');
   return FileSystemLegacy.readAsStringAsync(local, { encoding: FileSystemLegacy.EncodingType.UTF8 });
 }
