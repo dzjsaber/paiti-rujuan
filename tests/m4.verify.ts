@@ -96,10 +96,10 @@ const NO_SECRETS: ExplainSecrets = {
   custom: { url: '', model: '', apiKey: '' },
 };
 
-check('resolveExplainTarget：智谱免费（无 Key 提示 / 有 Key 指向 glm-4.7-flash）', () => {
+check('resolveExplainTarget：智谱免费（无 Key 提示 / 有 Key 指向 glm-4.5-flash）', () => {
   assert(resolveExplainTarget('zhipu_free', NO_SECRETS).kind === 'missing_config', '无 Key 应提示配置');
   const ok = resolveExplainTarget('zhipu_free', { ...NO_SECRETS, zhipuApiKey: 'k' });
-  assert(ok.kind === 'api' && ok.url === ZHIPU_URL && ok.model === 'glm-4.7-flash', '免费档应指向 glm-4.7-flash');
+  assert(ok.kind === 'api' && ok.url === ZHIPU_URL && ok.model === 'glm-4.5-flash', '免费档应指向 glm-4.5-flash');
 });
 
 check('resolveExplainTarget：智谱高级 → glm-5.3', () => {

@@ -11,7 +11,9 @@ import { SseTextStream } from './sse';
 
 export const ZHIPU_CHAT_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 export const VISION_MODEL = 'glm-4.6v-flash';
-export const TEXT_MODEL = 'glm-4.7-flash';
+// 文本任务（文档切题）用 glm-4.5-flash：免费、实测 6 秒完成 3 题切题（JSON 可解析），
+// glm-4.7-flash 免费档实测排队 60 秒+（2026-10-16 实测）
+export const TEXT_MODEL = 'glm-4.5-flash';
 
 export interface LLMCallOptions {
   model: string;

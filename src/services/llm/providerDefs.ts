@@ -16,7 +16,7 @@ export const EXPLAIN_PROVIDERS: Record<ExplainProviderId, ExplainProviderInfo> =
   zhipu_free: {
     id: 'zhipu_free',
     label: '智谱 · 免费（默认）',
-    tagline: 'glm-4.7-flash · 0 元',
+    tagline: 'glm-4.5-flash · 0 元',
     detail: '应用内生成讲解，支持教材引用（自动标注依据编号）。',
     supportsRag: true,
   },
@@ -52,7 +52,9 @@ export const EXPLAIN_PROVIDERS: Record<ExplainProviderId, ExplainProviderInfo> =
 
 export const ZHIPU_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 export const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
-export const ZHIPU_FREE_MODEL = 'glm-4.7-flash';
+// 免费档用 glm-4.5-flash：同为免费模型，但 glm-4.7-flash 免费档实测排队严重
+// （首字 62~92 秒），glm-4.5-flash 首字 ~0.3 秒、整体 ~1.3 秒（2026-10-16 实测）
+export const ZHIPU_FREE_MODEL = 'glm-4.5-flash';
 export const ZHIPU_PRO_MODEL = 'glm-5.3';
 export const DEEPSEEK_MODEL = 'deepseek-chat';
 

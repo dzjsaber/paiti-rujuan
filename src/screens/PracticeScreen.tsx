@@ -16,7 +16,7 @@ import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, remov
 import { setQuestionExplanation, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
 import { isNoEvidenceAnswer, renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
-import { TEXT_MODEL, type LLMService } from '../services/llm/LLMService';
+import type { LLMService } from '../services/llm/LLMService';
 import { getExplainProvider } from '../services/modelPrefs';
 import {
   getCustomConfig,
