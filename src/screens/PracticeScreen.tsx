@@ -13,7 +13,7 @@ import { buildSearchTerms, clipHitText } from '../core/searchTerms';
 import { searchMaterialsSmart } from '../db/fts';
 import { listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_banks';
 import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
-import { setQuestionExplanation, type QuestionRow } from '../db/repo_questions';
+import { setQuestionExplanation, setQuestionFavorite, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
 import { isNoEvidenceAnswer, renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
 import type { LLMService } from '../services/llm/LLMService';
@@ -40,6 +40,7 @@ type Stage = 'pickBank' | 'loading' | 'answering' | 'judged' | 'finished' | 'emp
 interface ParsedQuestion {
   id: string;
   bankId: string;
+  favorite: boolean;
   type: string;
   stem: string;
   options: { id: string; text: string }[];
@@ -77,6 +78,7 @@ function parseRow(row: QuestionRow): ParsedQuestion {
   return {
     id: row.id,
     bankId: row.bank_id,
+    favorite: row.favorite === 1,
     type: row.type,
     stem: row.stem,
     options: Array.isArray(options) ? options : [],
@@ -136,13 +138,17 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const [bankId, setBankId] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
   const [banks, setBanks] = useState<BankSummary[]>([]);
+  /** 只刷收藏（题库模式下由库选择页入口决定） */
+  const [favOnly, setFavOnly] = useState(false);
+  /** 题目列表（跳转任意一题） */
+  const [showList, setShowList] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const loadQuestions = useCallback(
     async (ord: 'seq' | 'random') => {
       setStage('loading');
       try {
-        const rows = await listPracticeQuestions(db, mode, bankId ?? undefined);
+        const rows = await listPracticeQuestions(db, mode === 'bank' && favOnly ? 'fav' : mode, bankId ?? undefined);
         let qs = rows.map(parseRow);
         if (ord === 'random') qs = shuffleInPlace(qs);
         setQuestions(qs);
@@ -154,7 +160,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         setStage('empty');
       }
     },
-    [db, mode, bankId],
+    [db, mode, bankId, favOnly],
   );
 
   useEffect(() => {
@@ -232,6 +238,31 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     const noRef = q.answer === null || q.answer === undefined;
     await applyResult(noRef ? null : isTextAnswerCorrect(textAnswer, q.answerText));
   }, [q, stage, textAnswer, applyResult]);
+
+  /** 收藏/取消收藏本题（"只刷收藏"模式的数据来源） */
+  const toggleFavorite = useCallback(async () => {
+    if (!q) return;
+    const next = !q.favorite;
+    try {
+      await setQuestionFavorite(db, q.id, next);
+      setQuestions((prev) => prev.map((x) => (x.id === q.id ? { ...x, favorite: next } : x)));
+    } catch (e) {
+      Alert.alert('操作失败', String((e as Error)?.message ?? e));
+    }
+  }, [db, q]);
+
+  /** 从题目列表跳到任意一题（重置本题作答状态） */
+  const jumpTo = useCallback((i: number) => {
+    explainSeqRef.current += 1;
+    setShowList(false);
+    setChosen([]);
+    setTextAnswer('');
+    setResult(null);
+    setExplain(null);
+    setShowEvidence(false);
+    setIdx(i);
+    setStage('answering');
+  }, []);
 
   const pickOption = useCallback(
     (optId: string) => {
@@ -536,19 +567,32 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           <Text style={styles.pickHint}>选择要在哪个题库刷题</Text>
           {banks.length === 0 && <Text style={styles.emptyText}>还没有题库。</Text>}
           {banks.map((b) => (
-            <Pressable
-              key={b.id}
-              style={styles.bankCard}
-              onPress={() => {
-                setBankId(b.id);
-                setBankName(b.name);
-              }}
-            >
-              <Text style={styles.bankCardName} numberOfLines={1}>
-                {b.name}
-              </Text>
-              <Text style={styles.bankCardCount}>{b.count} 题</Text>
-            </Pressable>
+            <View key={b.id} style={styles.bankCard}>
+              <Pressable
+                style={styles.bankMain}
+                onPress={() => {
+                  setBankId(b.id);
+                  setBankName(b.name);
+                  setFavOnly(false);
+                }}
+              >
+                <Text style={styles.bankCardName} numberOfLines={1}>
+                  {b.name}
+                </Text>
+                <Text style={styles.bankCardCount}>{b.count} 题</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.favEntry, b.fav_count === 0 && styles.favEntryDisabled]}
+                disabled={b.fav_count === 0}
+                onPress={() => {
+                  setBankId(b.id);
+                  setBankName(b.name);
+                  setFavOnly(true);
+                }}
+              >
+                <Text style={styles.favEntryText}>★ 收藏 {b.fav_count}</Text>
+              </Pressable>
+            </View>
           ))}
         </ScrollView>
       </View>
@@ -569,9 +613,11 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         <Text style={styles.emptyText}>
           {mode === 'wrong'
             ? '错题本是空的。刷题时答错的题目会自动进来。'
-            : bankName
-              ? `「${bankName}」还没有题目，先去首页识别导入，或返回换一个题库。`
-              : '题库还没有题目，先去首页识别导入一些吧。'}
+            : favOnly
+              ? '这个题库还没有收藏的题目。刷题时点题目下方的"☆ 收藏本题"，之后在选择题库时点"★ 收藏"即可只刷收藏。'
+              : bankName
+                ? `「${bankName}」还没有题目，先去首页识别导入，或返回换一个题库。`
+                : '题库还没有题目，先去首页识别导入一些吧。'}
         </Text>
         <Pressable style={styles.primaryBtn} onPress={onDone}>
           <Text style={styles.primaryBtnText}>返回首页</Text>
@@ -629,19 +675,30 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           <Text style={styles.back}>← 退出</Text>
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
-          {mode === 'wrong' ? '错题重刷' : bankName ?? '刷题'}
+          {mode === 'wrong' ? '错题重刷' : favOnly ? `${bankName ?? '刷题'} · 收藏` : bankName ?? '刷题'}
         </Text>
-        <Pressable onPress={() => setOrderState((o) => (o === 'seq' ? 'random' : 'seq'))} hitSlop={6}>
-          <Text style={styles.counter}>
-            {idx + 1}/{questions.length} · {orderState === 'random' ? '随机 ⇄' : '顺序 ⇄'}
-          </Text>
-        </Pressable>
+        <View style={styles.headerRight}>
+          <Pressable onPress={() => setShowList(true)} hitSlop={6}>
+            <Text style={styles.counter}>
+              {idx + 1}/{questions.length} ☰
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setOrderState((o) => (o === 'seq' ? 'random' : 'seq'))} hitSlop={6}>
+            <Text style={styles.counter}>{orderState === 'random' ? '随机 ⇄' : '顺序 ⇄'}</Text>
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView ref={scrollRef} style={styles.body} contentContainerStyle={styles.bodyContent}>
         <View style={styles.stemCard}>
           <Text style={styles.stemText}>{q.stem}</Text>
         </View>
+
+        <Pressable style={styles.favRow} onPress={() => void toggleFavorite()}>
+          <Text style={[styles.favText, q.favorite && styles.favTextOn]}>
+            {q.favorite ? '★ 已收藏（点击取消）' : '☆ 收藏本题'}
+          </Text>
+        </Pressable>
 
         {q.questionImage ? (
           <Pressable onPress={() => setShowFigure(true)}>
@@ -810,6 +867,27 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         )}
       </View>
 
+      <Modal visible={showList} transparent animationType="slide" onRequestClose={() => setShowList(false)}>
+        <View style={styles.sheetBg}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>选择题目（{questions.length} 题）</Text>
+            <ScrollView style={styles.sheetList}>
+              {questions.map((item, i) => (
+                <Pressable key={item.id} style={[styles.sheetRow, i === idx && styles.sheetRowOn]} onPress={() => jumpTo(i)}>
+                  <Text style={[styles.sheetRowName, i === idx && styles.sheetRowNameOn]} numberOfLines={1}>
+                    {i + 1}. {item.stem}
+                  </Text>
+                  {item.favorite && <Text style={styles.listStar}>★</Text>}
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable style={styles.sheetClose} onPress={() => setShowList(false)}>
+              <Text style={styles.sheetCloseText}>关闭</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={showImage} transparent onRequestClose={() => setShowImage(false)}>
         <View style={styles.modalBg}>
           {q.sourceImage ? <Image source={{ uri: q.sourceImage }} style={styles.modalImage} resizeMode="contain" /> : null}
@@ -843,6 +921,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   back: { fontSize: 15, color: '#1c5cd6' },
   title: { flexShrink: 1, marginHorizontal: 8, fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   counter: { fontSize: 13, color: '#66707f' },
   spacer: { width: 52 },
   pickList: { flex: 1, marginTop: 12 },
@@ -857,8 +936,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  bankCardName: { flex: 1, fontSize: 16, fontWeight: '700', color: '#222' },
-  bankCardCount: { marginLeft: 10, fontSize: 13, color: '#66707f' },
+  bankMain: { flex: 1 },
+  bankCardName: { fontSize: 16, fontWeight: '700', color: '#222' },
+  bankCardCount: { marginTop: 3, fontSize: 13, color: '#66707f' },
+  favEntry: {
+    marginLeft: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f0c36d',
+    backgroundColor: '#fffaf0',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  favEntryDisabled: { opacity: 0.4 },
+  favEntryText: { fontSize: 13, color: '#b8860b', fontWeight: '700' },
+  favRow: { alignSelf: 'flex-start', marginBottom: 10, paddingVertical: 4 },
+  favText: { fontSize: 13, color: '#8a94a6' },
+  favTextOn: { color: '#b8860b', fontWeight: '700' },
   body: { flex: 1, marginTop: 12 },
   bodyContent: { paddingHorizontal: 16, paddingBottom: 20 },
   stemCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 14 },
@@ -920,4 +1014,31 @@ const styles = StyleSheet.create({
   modalImage: { width: '100%', height: '85%' },
   modalClose: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 32, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)' },
   modalCloseText: { color: '#fff', fontSize: 15 },
+  sheetBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 26,
+  },
+  sheetTitle: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
+  sheetList: { maxHeight: 420, marginTop: 8 },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e3e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginTop: 8,
+  },
+  sheetRowOn: { borderColor: '#1c5cd6', backgroundColor: '#f3f7ff' },
+  sheetRowName: { flex: 1, fontSize: 14, color: '#333' },
+  sheetRowNameOn: { color: '#1c5cd6', fontWeight: '700' },
+  listStar: { marginLeft: 8, fontSize: 14, color: '#f0a500' },
+  sheetClose: { marginTop: 14, alignItems: 'center', paddingVertical: 12 },
+  sheetCloseText: { color: '#66707f', fontSize: 14 },
 });

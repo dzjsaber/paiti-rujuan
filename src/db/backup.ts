@@ -134,14 +134,15 @@ export function questionRowToParams(q: QuestionRow): (string | number | null)[] 
     q.created_at,
     q.updated_at,
     q.ai_explanation ?? null,
+    q.favorite ?? 0,
   ];
 }
 
 const RESTORE_INSERT_SQL = `INSERT OR IGNORE INTO questions(
   id, bank_id, type, stem, options_json, answer_json, analysis, tags_json, confidence,
   review_reasons_json, visual_features_json, source_image_path, source_page, source_hash,
-  question_image_path, source_engine, status, review_status, created_at, updated_at, ai_explanation
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  question_image_path, source_engine, status, review_status, created_at, updated_at, ai_explanation, favorite
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
 export interface RestoreStats {
   questionsAdded: number;

@@ -6,6 +6,7 @@ import { draftToRowParams, rowToQuestion, type QuestionRow } from '../src/db/rep
 import { escapeLike, shouldUseLike } from '../src/db/fts';
 import { LLMService, type FetchLike } from '../src/services/llm/LLMService';
 import { SseTextStream } from '../src/services/llm/sse';
+import { parseDeepseekBalance } from '../src/services/llm/balance';
 import { ZhipuVisionEngine } from '../src/services/recognition/zhipuVision';
 import type { QuestionDraft } from '../src/core/models';
 
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
       source_engine: 'zhipu',
       status: 'pending',
       review_status: 'needs_review',
+      favorite: 0,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     };
@@ -191,6 +193,13 @@ async function main(): Promise<void> {
     assert(calls === 1, `取消后不应重试（实际请求 ${calls} 次）`);
     assert(r.ok === false && r.error?.userMessage === '已取消', '应返回已取消');
     assert(r.error?.retryable === false, '取消不可重试');
+  });
+
+  await check('parseDeepseekBalance：解析余额（CNY/USD/异常）', () => {
+    assert(parseDeepseekBalance({ balance_infos: [{ currency: 'CNY', total_balance: '25.89' }] }) === '¥25.89', 'CNY');
+    assert(parseDeepseekBalance({ balance_infos: [{ currency: 'USD', total_balance: '1.00' }] }) === '$1.00', 'USD');
+    assert(parseDeepseekBalance({ balance_infos: [] }) === null, '空数组应返回 null');
+    assert(parseDeepseekBalance(null) === null, 'null 应返回 null');
   });
 
   await check('1305 限流：重试 1 次后失败，attempts=2 且可重试标记保留', async () => {

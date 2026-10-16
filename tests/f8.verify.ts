@@ -1,5 +1,11 @@
 /** F8 纯逻辑验证：文档分块 + 答案表解析/映射。运行：npx tsx tests/f8.verify.ts */
-import { applyAnswerTable, extractQuestionNo, parseAnswerTable, type MappableDraft } from '../src/services/documents/answerTable';
+import {
+  applyAnswerTable,
+  extractQuestionNo,
+  parseAnswerDoc,
+  parseAnswerTable,
+  type MappableDraft,
+} from '../src/services/documents/answerTable';
 import { MATERIAL_BOUNDARY, chunkDocument } from '../src/services/documents/chunker';
 import { checkQuestionNumbers, extractQuestionNumbers } from '../src/core/questionNumbers';
 import { pptxBytesToText } from '../src/services/documents/pptx';
@@ -188,6 +194,17 @@ check('checkQuestionNumbers：识别缺失题号；模型无题号时 found 为�
   assert(r.missing.length === 1 && r.missing[0] === 3, `应缺第 3 题，实际 ${r.missing.join(',')}`);
   const r2 = checkQuestionNumbers(text, [{ stem: '没有题号的题干' }, { stem: '另一题' }]);
   assert(r2.found.length === 0 && r2.missing.length === 5, '模型未保留题号时 found 为空（调用方据此不提示）');
+});
+
+check('parseAnswerDoc：单题式 / 区间连写式 / 少于 3 条视为无效', () => {
+  const m1 = parseAnswerDoc('答案：1. A  2、B  3.C  4. 对  5. ×');
+  assert(m1.size === 5, `单题式应解析 5 条，实际 ${m1.size}`);
+  assert(m1.get('1') === 'A' && m1.get('4') === '对' && m1.get('5') === '×', '答案值应正确');
+  const m2 = parseAnswerDoc('选择题：1-5 DCBAB\n判断题：6~10 √×√××');
+  assert(m2.size === 10, `区间式应展开 10 条，实际 ${m2.size}`);
+  assert(m2.get('3') === 'B' && m2.get('9') === '×', '区间展开应对位');
+  const m3 = parseAnswerDoc('只有 1. A 和 2. B 两条');
+  assert(m3.size === 0, '少于 3 条应视为无效（防正文误认）');
 });
 
 const total = passed + fails.length;

@@ -10,6 +10,7 @@ import { MIGRATIONS } from '../src/db/schema';
 import {
   countAllQuestions,
   rowToQuestion,
+  setQuestionFavorite,
   setQuestionExplanation,
   updateQuestionContent,
   type QuestionRow,
@@ -22,7 +23,7 @@ import {
   renameBank,
   setBankMaterials,
 } from '../src/db/repo_banks';
-import { countWrongBook, listPracticeQuestions, listWrongBook } from '../src/db/repo_practice';
+import { countFavorite, countWrongBook, listPracticeQuestions, listWrongBook } from '../src/db/repo_practice';
 import { restoreBackup, validateBackup, type BackupFile } from '../src/db/backup';
 
 let passed = 0;
@@ -246,6 +247,23 @@ async function main(): Promise<void> {
     assert(after?.stem === '新题干', '题干应更新');
     assert(after?.analysis === '人工补充的解析', '自带解析应更新');
     assert(after?.ai_explanation === 'AI 讲解内容', 'AI 讲解不应被编辑覆盖');
+  });
+
+  await check('收藏：fav 模式只取收藏题，countFavorite 与 listBanks.fav_count 正确', async () => {
+    const db = freshDb();
+    const b2 = await createBank(db, '库二');
+    const q1 = await insertQuestionRow(db, b2, '库二题 1');
+    const q2 = await insertQuestionRow(db, b2, '库二题 2');
+    await insertQuestionRow(db, b2, '库二题 3');
+    await setQuestionFavorite(db, q1, true);
+    await setQuestionFavorite(db, q2, true);
+    const favRows = await listPracticeQuestions(db, 'fav', b2);
+    assert(favRows.length === 2, `fav 模式应为 2 题，实际 ${favRows.length}`);
+    assert((await countFavorite(db, b2)) === 2, '收藏计数应为 2');
+    await setQuestionFavorite(db, q1, false);
+    assert((await countFavorite(db, b2)) === 1, '取消收藏后应剩 1');
+    const list = await listBanks(db);
+    assert(list.find((b) => b.id === b2)?.fav_count === 1, 'listBanks 应带 fav_count');
   });
 
   await check('恢复 v1 备份：题目引用的库不存在时兜底建库，题不丢', async () => {

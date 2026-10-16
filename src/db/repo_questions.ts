@@ -28,6 +28,7 @@ export interface QuestionRow {
   source_engine: string;
   status: string;
   review_status: string;
+  favorite: number;
   created_at: string;
   updated_at: string;
 }
@@ -147,6 +148,22 @@ export async function countAllQuestions(db: SQLiteDatabase): Promise<number> {
 /** 写入/清除 AI 讲解（与自带解析 analysis 分开；传 null 表示删除讲解） */
 export async function setQuestionExplanation(db: SQLiteDatabase, id: string, text: string | null): Promise<void> {
   await db.runAsync('UPDATE questions SET ai_explanation = ?, updated_at = ? WHERE id = ?', text, new Date().toISOString(), id);
+}
+
+/** 收藏/取消收藏（刷题界面星标；支持"只刷收藏"模式） */
+export async function setQuestionFavorite(db: SQLiteDatabase, id: string, favorite: boolean): Promise<void> {
+  await db.runAsync('UPDATE questions SET favorite = ?, updated_at = ? WHERE id = ?', favorite ? 1 : 0, new Date().toISOString(), id);
+}
+
+/** 写入题目答案（"识别答案文档"补答案用；状态同步为已确认） */
+export async function setQuestionAnswer(db: SQLiteDatabase, id: string, answer: unknown): Promise<void> {
+  await db.runAsync(
+    'UPDATE questions SET answer_json = ?, status = ?, updated_at = ? WHERE id = ?',
+    JSON.stringify(answer ?? null),
+    'approved',
+    new Date().toISOString(),
+    id,
+  );
 }
 
 /**

@@ -10,12 +10,15 @@ export interface BankSummary {
   name: string;
   created_at: string;
   count: number;
+  /** 收藏题数量（"只刷收藏"入口显示；不含停用题） */
+  fav_count: number;
 }
 
-/** 全部题库 + 题目数（空库为 0），按创建时间排序（默认题库最先） */
+/** 全部题库 + 题目数/收藏数（空库为 0），按创建时间排序（默认题库最先） */
 export async function listBanks(db: SQLiteDatabase): Promise<BankSummary[]> {
   return db.getAllAsync<BankSummary>(
-    `SELECT b.id, b.name, b.created_at, COUNT(q.id) AS count
+    `SELECT b.id, b.name, b.created_at, COUNT(q.id) AS count,
+            COALESCE(SUM(CASE WHEN q.favorite = 1 AND q.status != 'disabled' THEN 1 ELSE 0 END), 0) AS fav_count
        FROM banks b LEFT JOIN questions q ON q.bank_id = b.id
       GROUP BY b.id, b.name, b.created_at
       ORDER BY b.created_at, b.id`,

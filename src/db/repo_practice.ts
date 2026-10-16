@@ -68,11 +68,12 @@ export async function countWrongBook(db: SQLiteDatabase): Promise<number> {
 }
 
 /**
- * 刷题题目来源：bank 模式 = 指定题库的全部非停用题；wrong 模式 = 全部题库的错题（跨库）。
+ * 刷题题目来源：bank = 指定题库全部非停用题；fav = 指定题库的收藏题；
+ * wrong = 全部题库的错题（跨库）。
  */
 export async function listPracticeQuestions(
   db: SQLiteDatabase,
-  mode: 'bank' | 'wrong',
+  mode: 'bank' | 'wrong' | 'fav',
   bankId?: string,
   limit = 500,
 ): Promise<QuestionRow[]> {
@@ -84,11 +85,27 @@ export async function listPracticeQuestions(
       limit,
     );
   }
+  if (mode === 'fav') {
+    return db.getAllAsync<QuestionRow>(
+      "SELECT * FROM questions WHERE bank_id = ? AND favorite = 1 AND status != 'disabled' ORDER BY created_at, id LIMIT ?",
+      bankId ?? '',
+      limit,
+    );
+  }
   return db.getAllAsync<QuestionRow>(
     "SELECT * FROM questions WHERE bank_id = ? AND status != 'disabled' ORDER BY created_at, id LIMIT ?",
     bankId ?? '',
     limit,
   );
+}
+
+/** 题库内收藏题数量（库选择页显示） */
+export async function countFavorite(db: SQLiteDatabase, bankId: string): Promise<number> {
+  const row = await db.getFirstAsync<{ c: number }>(
+    "SELECT COUNT(*) AS c FROM questions WHERE bank_id = ? AND favorite = 1 AND status != 'disabled'",
+    bankId,
+  );
+  return row?.c ?? 0;
 }
 
 export function shuffleInPlace<T>(arr: T[]): T[] {

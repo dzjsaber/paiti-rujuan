@@ -4,9 +4,10 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { BankMaterialPicker } from '../components/BankMaterialPicker';
-import type { QuestionDraft } from '../core/models';
+import type { QuestionDraft, QuestionType } from '../core/models';
 import { f2ValidateQuestion } from '../core/validation/f2';
 import { normalizeAnswer } from '../core/validation/normalize';
 import { deleteBank, listBankMaterialIds, listBanks, renameBank, type BankSummary } from '../db/repo_banks';
@@ -14,10 +15,13 @@ import {
   deleteQuestion,
   listQuestions,
   rowToQuestion,
+  setQuestionAnswer,
   setQuestionStatus,
   updateQuestionContent,
   type QuestionRow,
 } from '../db/repo_questions';
+import { extractQuestionNo, parseAnswerDoc, parseAnswerTable } from '../services/documents/answerTable';
+import { extractDocument } from '../services/documents/extractors';
 
 export interface BankScreenProps {
   db: SQLiteDatabase;
@@ -50,6 +54,7 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [materialTarget, setMaterialTarget] = useState<{ id: string; name: string } | null>(null);
   const [boundCount, setBoundCount] = useState(0);
+  const [answerBusy, setAnswerBusy] = useState(false);
   const [rows, setRows] = useState<QuestionRow[]>([]);
   const [filter, setFilter] = useState<'all' | 'noanswer'>('all');
   const [editing, setEditing] = useState<{ id: string; draft: QuestionDraft } | null>(null);
@@ -149,6 +154,130 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
     },
     [db, refreshBanks],
   );
+
+  /**
+   * 从答案文档补充答案：选择文件 → 本地解析"题号→答案" → 按题号匹配库内缺答案的题目
+   * → 确认后批量写入（不覆盖已有答案；题号重复/类型不符的跳过）。
+   */
+  const importAnswers = useCallback(async () => {
+    if (!selected || answerBusy) return;
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'application/vnd.ms-powerpoint',
+          'application/msword',
+          'text/plain',
+          'text/markdown',
+        ],
+        copyToCacheDirectory: false,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const a = res.assets[0];
+      setAnswerBusy(true);
+      const r = await extractDocument(a.uri, a.name);
+      let table = parseAnswerTable(r.text);
+      if (table.size === 0) table = parseAnswerDoc(r.text);
+      if (table.size === 0) {
+        Alert.alert(
+          '没识别到答案',
+          '这份文档里没有解析出"题号→答案"的对应关系。\n\n支持：文末答案表（如"1.A 2.B 3.C"）、整份答案文档、区间连写（如"1-5 DCBAB"）。扫描版（图片型）文件请先转成文字版。',
+        );
+        return;
+      }
+      const rows = await listQuestions(db, selected.id, 500, 0);
+      const byNo = new Map<string, QuestionRow[]>();
+      for (const row of rows) {
+        const no = extractQuestionNo(row.stem);
+        if (!no) continue;
+        const arr = byNo.get(no) ?? [];
+        arr.push(row);
+        byNo.set(no, arr);
+      }
+      const plan: { id: string; stem: string; answer: unknown }[] = [];
+      let skipExisting = 0;
+      let noMatch = 0;
+      let dupNo = 0;
+      for (const [no, ansText] of table) {
+        const cands = byNo.get(no);
+        if (!cands || cands.length === 0) {
+          noMatch += 1;
+          continue;
+        }
+        if (cands.length > 1) {
+          dupNo += 1;
+          continue;
+        }
+        const row = cands[0];
+        let has = false;
+        try {
+          has = JSON.parse(row.answer_json) !== null;
+        } catch {
+          has = false;
+        }
+        if (has) {
+          skipExisting += 1;
+          continue;
+        }
+        let opts: { id: string }[] = [];
+        try {
+          opts = JSON.parse(row.options_json) as { id: string }[];
+        } catch {
+          opts = [];
+        }
+        const answer = normalizeAnswer(row.type as QuestionType, ansText, opts.map((o) => o.id)).answer;
+        if (answer === null) {
+          noMatch += 1;
+          continue;
+        }
+        const valid = f2ValidateQuestion({ ...rowToQuestion(row), answer }, { normalize: false });
+        if (valid.status === 'invalid') {
+          noMatch += 1;
+          continue;
+        }
+        plan.push({ id: row.id, stem: row.stem, answer });
+      }
+      if (plan.length === 0) {
+        Alert.alert(
+          '没有可补充的答案',
+          `解析到 ${table.size} 条答案，但没有匹配到缺答案的题目。\n\n已有答案跳过 ${skipExisting} 题；未匹配到题目 ${noMatch} 条；题号重复未处理 ${dupNo} 条。`,
+        );
+        return;
+      }
+      Alert.alert(
+        '确认导入答案？',
+        `解析到 ${table.size} 条答案，将补充 ${plan.length} 题（已有答案跳过 ${skipExisting} 题${
+          noMatch > 0 ? `、未匹配 ${noMatch} 条` : ''
+        }${dupNo > 0 ? `、题号重复未处理 ${dupNo} 条` : ''}）。\n\n示例：${plan[0].stem.slice(0, 16)}… → ${JSON.stringify(plan[0].answer)}`,
+        [
+          { text: '取消', style: 'cancel' },
+          {
+            text: `写入 ${plan.length} 题`,
+            onPress: () => {
+              void (async () => {
+                try {
+                  for (const p of plan) {
+                    await setQuestionAnswer(db, p.id, p.answer);
+                  }
+                  await refresh();
+                  Alert.alert('导入完成', `已补充 ${plan.length} 道题的答案。`);
+                } catch (e) {
+                  Alert.alert('写入失败', String((e as Error)?.message ?? e));
+                }
+              })();
+            },
+          },
+        ],
+      );
+    } catch (e) {
+      Alert.alert('导入答案失败', String((e as Error)?.message ?? e));
+    } finally {
+      setAnswerBusy(false);
+    }
+  }, [db, selected, refresh, answerBusy]);
 
   const openEdit = useCallback((row: QuestionRow) => {
     const d = rowToQuestion(row);
@@ -341,6 +470,15 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
           <Text style={styles.bindHint}>{boundCount > 0 ? '（讲解只依据绑定教材）' : '（可选，未绑定则检索全部教材）'}</Text>
         </Text>
         <Text style={styles.bindAction}>设置</Text>
+      </Pressable>
+
+      <Pressable style={styles.bindRow} onPress={() => void importAnswers()} disabled={answerBusy}>
+        <Text style={styles.bindLabel} numberOfLines={1}>
+          答案：
+          <Text style={styles.bindValue}>从文档补充答案</Text>
+          <Text style={styles.bindHint}>（只填缺答案的题，题目需带题号）</Text>
+        </Text>
+        <Text style={styles.bindAction}>{answerBusy ? '处理中…' : '导入'}</Text>
       </Pressable>
 
       <View style={styles.filterRow}>

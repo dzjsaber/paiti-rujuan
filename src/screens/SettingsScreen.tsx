@@ -1,7 +1,8 @@
 /** 设置页：API Key 配置（SecureStore）、技术自检入口、隐私说明。 */
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { clearApiKey, getApiKey, maskKey, saveApiKey } from '../services/apiKey';
+import { fetchDeepseekBalance } from '../services/llm/balance';
 import {
   getCutProvider,
   getExplainProvider,
@@ -61,6 +62,8 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
   const [cutProvider, setCutProvider] = useState<CutProviderId>('zhipu_free');
   const [dsKey, setDsKey] = useState<string | null>(null);
   const [dsInput, setDsInput] = useState('');
+  const [dsBalance, setDsBalance] = useState<string | null>(null);
+  const [dsBalanceErr, setDsBalanceErr] = useState<string | null>(null);
   const [custom, setCustom] = useState<CustomConfig>({ url: '', model: '', apiKey: '' });
   const [customInput, setCustomInput] = useState<CustomConfig>({ url: '', model: '', apiKey: '' });
   const [section, setSection] = useState<SectionKey | null>(null);
@@ -97,6 +100,21 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
     setDsKey(await getDeepseekKey());
     Alert.alert('已保存');
   }, [dsInput]);
+
+  const queryBalance = useCallback(async () => {
+    setDsBalance(null);
+    setDsBalanceErr(null);
+    try {
+      const key = await getDeepseekKey();
+      if (!key) {
+        setDsBalanceErr('未配置 DeepSeek Key');
+        return;
+      }
+      setDsBalance(await fetchDeepseekBalance(key));
+    } catch (e) {
+      setDsBalanceErr(String((e as Error)?.message ?? e));
+    }
+  }, []);
 
   const saveCustom = useCallback(async () => {
     await saveCustomConfig(customInput);
@@ -189,6 +207,13 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
           <Text style={styles.btnGhostText}>清除已保存的 Key</Text>
         </Pressable>
       )}
+      <Pressable
+        style={styles.linkRow}
+        hitSlop={6}
+        onPress={() => void Linking.openURL('https://bigmodel.cn/usercenter/apikeys')}
+      >
+        <Text style={styles.link}>前往智谱开放平台：注册 / 获取 API Key / 查看余额</Text>
+      </Pressable>
 
       <Text style={styles.section}>DeepSeek API Key（可选，用于讲解）</Text>
       <Text style={styles.hint}>当前：{maskKey(dsKey)}</Text>
@@ -204,6 +229,16 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
       <Pressable style={styles.btn} onPress={() => void saveDs()}>
         <Text style={styles.btnText}>保存 DeepSeek Key</Text>
       </Pressable>
+      <View style={styles.linkRowWrap}>
+        <Pressable hitSlop={6} onPress={() => void Linking.openURL('https://platform.deepseek.com/api_keys')}>
+          <Text style={styles.link}>获取 DeepSeek API Key</Text>
+        </Pressable>
+        <Pressable hitSlop={6} onPress={() => void queryBalance()}>
+          <Text style={styles.link}>查询余额</Text>
+        </Pressable>
+      </View>
+      {dsBalance && <Text style={styles.balance}>DeepSeek 余额：{dsBalance}</Text>}
+      {dsBalanceErr && <Text style={styles.balanceErr}>{dsBalanceErr}</Text>}
 
             </>
           )}
@@ -349,6 +384,11 @@ const styles = StyleSheet.create({
   spacer: { width: 52 },
   section: { marginTop: 28, fontSize: 15, fontWeight: '700', color: '#333' },
   hint: { marginTop: 8, fontSize: 13, color: '#777' },
+  linkRow: { marginTop: 10, alignSelf: 'flex-start' },
+  linkRowWrap: { marginTop: 10, flexDirection: 'row', gap: 18 },
+  link: { fontSize: 13, color: '#1c5cd6' },
+  balance: { marginTop: 6, fontSize: 13, color: '#0a7d33', fontWeight: '700' },
+  balanceErr: { marginTop: 6, fontSize: 12, color: '#c02a2a' },
   groupBtn: {
     marginTop: 14,
     backgroundColor: '#fff',

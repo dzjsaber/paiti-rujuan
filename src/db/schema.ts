@@ -252,6 +252,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_questions_source_hash
 PRAGMA foreign_keys = ON;
 `,
   },
+  {
+    version: 9,
+    name: '009_question_favorite',
+    // 收藏题目：刷题界面点亮星标，支持"只刷收藏"
+    sql: 'ALTER TABLE questions ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;',
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

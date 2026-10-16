@@ -44,6 +44,39 @@ export function extractQuestionNo(stem: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * 解析"整份都是答案"的文档（可无"参考答案"标题）：全文扫描题号→答案对。
+ * 支持：单题式（"1.A" / "2、对"）、区间连写式（"1-5 DCBAB" / "6~10 √×√××"）。
+ * 至少 3 条才视为有效，避免把正文里的偶发格式误认成答案。
+ */
+export function parseAnswerDoc(text: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const normalized = text.replace(/\r\n/g, '\n');
+  // 区间连写式：题号范围 + 等长答案串（字母或对错符号逐字对应）
+  const rangeRe = /(?:^|[\s\n，,、;；：:])(\d{1,3})\s*[-–~～]\s*(\d{1,3})\s*[.、．:：)）]?\s*((?:[A-Ha-h]|[对错√×]){2,20})/g;
+  let m: RegExpExecArray | null;
+  let guard = 0;
+  while ((m = rangeRe.exec(normalized)) && guard < 200) {
+    guard += 1;
+    const start = Number(m[1]);
+    const end = Number(m[2]);
+    const seq = Array.from(m[3]);
+    if (end - start + 1 !== seq.length) continue; // 长度对不上，放弃该区间
+    for (let i = 0; i < seq.length; i++) {
+      const no = String(start + i);
+      if (!map.has(no)) map.set(no, seq[i]);
+    }
+  }
+  // 单题式
+  const singleRe = /(?:^|[\s\n，,、;；：:])(\d{1,3})\s*[.、．:：)）]\s*([A-Ha-h]{1,4}|对|错|√|×|正确|错误|是|否)(?=$|[\s\n，,、;；])/g;
+  guard = 0;
+  while ((m = singleRe.exec(normalized)) && guard < 1000) {
+    guard += 1;
+    if (!map.has(m[1])) map.set(m[1], m[2]);
+  }
+  return map.size >= 3 ? map : new Map();
+}
+
 function convertAnswer(raw: string, type: string): unknown {
   const t = raw.trim();
   if (type === 'judge') {
