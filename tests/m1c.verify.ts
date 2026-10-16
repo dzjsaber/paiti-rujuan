@@ -172,6 +172,27 @@ async function main(): Promise<void> {
     assert(bodies[1] && !('thinking' in bodies[1]), '非智谱端点不应带 thinking');
   });
 
+  await check('外部取消：abort 后立即返回"已取消"，不重试', async () => {
+    let calls = 0;
+    const fetchImpl: FetchLike = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        calls += 1;
+        init?.signal?.addEventListener('abort', () => {
+          const e = new Error('Aborted');
+          e.name = 'AbortError';
+          reject(e);
+        });
+      });
+    const svc = new LLMService(async () => 'k', fetchImpl);
+    const ctl = new AbortController();
+    const p = svc.complete('hi', { retryDelayMs: 0, signal: ctl.signal });
+    setTimeout(() => ctl.abort(), 20);
+    const r = await p;
+    assert(calls === 1, `取消后不应重试（实际请求 ${calls} 次）`);
+    assert(r.ok === false && r.error?.userMessage === '已取消', '应返回已取消');
+    assert(r.error?.retryable === false, '取消不可重试');
+  });
+
   await check('1305 限流：重试 1 次后失败，attempts=2 且可重试标记保留', async () => {
     let calls = 0;
     const fetchImpl: FetchLike = async () => {

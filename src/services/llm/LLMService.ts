@@ -27,6 +27,8 @@ export interface LLMCallOptions {
   timeoutMs?: number;
   maxRetries?: number;
   retryDelayMs?: number;
+  /** 外部取消信号（如文档切题的取消按钮）：abort 后立即中断且不重试 */
+  signal?: AbortSignal;
   /** 智谱联网搜索工具（仅智谱端点支持；其他提供商请勿开启） */
   webSearch?: boolean;
   /** 覆盖默认端点与密钥（多提供商支持；缺省用构造器注入的智谱配置） */
@@ -93,6 +95,7 @@ export class LLMService {
       webSearch: opts.webSearch,
       thinking: opts.thinking,
       endpoint: opts.endpoint,
+      signal: opts.signal,
     });
   }
 
@@ -252,6 +255,8 @@ export class LLMService {
       const started = Date.now();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const onExternalAbort = () => controller.abort();
+      opts.signal?.addEventListener('abort', onExternalAbort);
       try {
         const resp = await this.fetchImpl(endpointUrl, {
           method: 'POST',
@@ -261,6 +266,7 @@ export class LLMService {
         });
         lastLatency = Date.now() - started;
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', onExternalAbort);
 
         if (!resp.ok) {
           let bizCode: string | null = null;
@@ -289,7 +295,20 @@ export class LLMService {
         return { ok: true, content, error: null, httpStatus: resp.status, latencyMs: lastLatency, attempts, usage: j.usage ?? null };
       } catch (e) {
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', onExternalAbort);
         lastLatency = Date.now() - started;
+        // 外部取消：立即返回，绝不重试
+        if (opts.signal?.aborted) {
+          return {
+            ok: false,
+            content: null,
+            error: { code: null, http: null, retryable: false, userMessage: '已取消' },
+            httpStatus: null,
+            latencyMs: lastLatency,
+            attempts,
+            usage: null,
+          };
+        }
         const isAbort = (e as Error)?.name === 'AbortError';
         lastError = isAbort
           ? { code: null, http: null, retryable: true, userMessage: '请求超时，请检查网络后重试' }

@@ -12,7 +12,7 @@ import { stemHash } from '../src/core/dedupe';
 import { isTextAnswerCorrect } from '../src/core/answerCheck';
 import { toCropRect } from '../src/core/figureBox';
 import { toQuestionType } from '../src/core/models';
-import { screenToImage } from '../src/components/usePinchZoom';
+import { focalZoom, screenToImage } from '../src/components/usePinchZoom';
 
 let passed = 0;
 const failures: string[] = [];
@@ -410,6 +410,21 @@ check('screenToImage：缩放/平移下的屏幕→图片坐标换算', () => {
   const p3 = screenToImage(300, 200, 400, 200, { scale: 2, tx: 40, ty: -20 });
   assert.equal(p3.x, 230);
   assert.equal(p3.y, 160);
+});
+
+check('focalZoom：围绕焦点缩放（焦点内容不动），缩小到底回正', () => {
+  const z1 = focalZoom({ scale: 1, tx: 0, ty: 0 }, 2, 200, 100, 400, 200);
+  assert.equal(z1.scale, 2);
+  assert.equal(z1.tx, 0);
+  assert.equal(z1.ty, 0);
+  const z2 = focalZoom({ scale: 1, tx: 0, ty: 0 }, 2, 0, 0, 400, 200);
+  assert.equal(z2.scale, 2);
+  assert.equal(z2.tx, 200);
+  assert.equal(z2.ty, 100);
+  const z3 = focalZoom({ scale: 2, tx: 120, ty: 60 }, 0.5, 200, 100, 400, 200);
+  assert.equal(z3.scale, 1);
+  assert.equal(z3.tx, 0);
+  assert.equal(z3.ty, 0);
 });
 
 // ---------------------------------------------------------------- 汇总

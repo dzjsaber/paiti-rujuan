@@ -44,6 +44,8 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
   const cancelRef = useRef(false);
+  /** 切题请求的中断控制器（取消按钮立即生效，不必等当前片段跑完） */
+  const abortRef = useRef<AbortController | null>(null);
 
   const pick = useCallback(async () => {
     try {
@@ -95,6 +97,8 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
     }
     setStage('structuring');
     cancelRef.current = false;
+    const abort = new AbortController();
+    abortRef.current = abort;
     try {
       const text = editedText;
       const chunks = chunkDocument(text);
@@ -102,7 +106,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
       const allDrafts: unknown[] = [];
       const failures: string[] = [];
       for (let i = 0; i < chunks.length; i++) {
-        if (cancelRef.current) {
+        if (cancelRef.current || abort.signal.aborted) {
           if (allDrafts.length > 0 && (await askKeep(allDrafts.length))) break;
           setStage('preview');
           return;
@@ -113,8 +117,15 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           temperature: 0.1,
           maxTokens: 8192,
           timeoutMs: 120000,
+          signal: abort.signal,
         });
         if (!r.ok) {
+          if (abort.signal.aborted) {
+            // 用户取消：立即退出（已识别的题目按"保留/丢弃"询问）
+            if (allDrafts.length > 0 && (await askKeep(allDrafts.length))) break;
+            setStage('preview');
+            return;
+          }
           failures.push(`第 ${i + 1} 块：${r.error?.userMessage ?? '请求失败'}`);
           continue;
         }
@@ -193,6 +204,8 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           style={styles.ghostBtn}
           onPress={() => {
             cancelRef.current = true;
+            abortRef.current?.abort();
+            setProgress('正在取消…');
           }}
         >
           <Text style={styles.ghostBtnText}>取消</Text>

@@ -4,7 +4,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +13,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { CropModal } from '../components/CropModal';
 import { usePinchZoom } from '../components/usePinchZoom';
 import { cropImage, type CropRect } from '../services/image';
@@ -71,33 +71,19 @@ export function HomeScreen({
   const previewH = Math.max(240, win.height - 330);
   const pz = usePinchZoom(previewW, previewH);
 
-  const previewPan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (evt) => {
-          pz.grant(evt.nativeEvent.touches);
-        },
-        onPanResponderStart: (evt) => {
-          pz.grant(evt.nativeEvent.touches);
-        },
-        onPanResponderMove: (evt) => {
-          pz.move(evt.nativeEvent.touches);
-        },
-        onPanResponderEnd: (evt) => {
-          pz.end(evt.nativeEvent.touches);
-        },
-        onPanResponderRelease: () => {
-          pz.end([]);
-        },
-        onPanResponderTerminate: () => {
-          pz.end([]);
-        },
-      }),
+  const previewGesture = useMemo(() => {
+    const pinch = Gesture.Pinch()
+      .runOnJS(true)
+      .onBegin(() => pz.begin())
+      .onUpdate((e) => pz.updatePinch(e.scale, e.focalX, e.focalY));
+    const pan = Gesture.Pan()
+      .maxPointers(1)
+      .runOnJS(true)
+      .onBegin(() => pz.begin())
+      .onUpdate((e) => pz.updatePan(e.translationX, e.translationY));
+    return Gesture.Simultaneous(pinch, pan);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pz.grant, pz.move, pz.end],
-  );
+  }, [pz.begin, pz.updatePinch, pz.updatePan]);
 
   const applyCrop = useCallback(
     (rect: CropRect) => {
@@ -193,10 +179,8 @@ export function HomeScreen({
           <Text style={styles.title}>确认图片</Text>
           <View style={styles.spacer} />
         </View>
-        <View
-          style={[styles.previewStage, { width: previewW, height: previewH }]}
-          {...previewPan.panHandlers}
-        >
+        <GestureDetector gesture={previewGesture}>
+        <View style={[styles.previewStage, { width: previewW, height: previewH }]}>
           <View
             style={{
               width: previewW,
@@ -207,6 +191,7 @@ export function HomeScreen({
             <Image source={{ uri: preview.imagePath }} style={{ width: previewW, height: previewH }} resizeMode="contain" />
           </View>
         </View>
+        </GestureDetector>
         <Text style={styles.previewHint}>
           双指可缩放查看；确认是这张图后再开始识别{originalPreview ? '（识别裁剪后的图片）' : ''}
         </Text>

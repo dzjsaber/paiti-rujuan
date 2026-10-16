@@ -3,6 +3,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import * as SQLite from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -67,24 +68,28 @@ export default function App() {
 
   if (initError) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errTitle}>初始化失败</Text>
-        <Text style={styles.errText}>{initError}</Text>
-      </View>
+      <GestureHandlerRootView style={styles.root}>
+        <View style={styles.center}>
+          <Text style={styles.errTitle}>初始化失败</Text>
+          <Text style={styles.errText}>{initError}</Text>
+        </View>
+      </GestureHandlerRootView>
     );
   }
 
   if (!db || !llm) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>正在初始化数据库…</Text>
-      </View>
+      <GestureHandlerRootView style={styles.root}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" />
+          <Text style={styles.loadingText}>正在初始化数据库…</Text>
+        </View>
+      </GestureHandlerRootView>
     );
   }
 
   return (
-    <>
+    <GestureHandlerRootView style={styles.root}>
       <StatusBar style="dark" />
       {screen.name === 'home' && (
         <HomeScreen
@@ -150,11 +155,12 @@ export default function App() {
       )}
       {screen.name === 'backup' && <BackupScreen db={db} onBack={() => setScreen({ name: 'settings' })} />}
       {screen.name === 'selftest' && <SelfTestScreen onBack={() => setScreen({ name: 'settings' })} />}
-    </>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f7f8fa', paddingHorizontal: 28 },
   loadingText: { marginTop: 14, fontSize: 14, color: '#66707f' },
   errTitle: { fontSize: 18, fontWeight: '700', color: '#c02a2a' },
