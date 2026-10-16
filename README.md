@@ -67,7 +67,13 @@ builds/         各次代码变更后的构建验证产物集合（每个子目�
                 构建，与应用运行、数据备份无关，可作为开发日志浏览）
 ```
 
-## 快速开始
+## 安装（Android）
+
+到 [Releases](https://github.com/dzjsaber/paiti-rujuan/releases) 页下载最新的 APK 直接安装
+（首次安装需允许"安装未知来源应用"）。应用纯本地运行、无需注册；AI 功能需在设置中填入
+自备的智谱 / DeepSeek API Key（[获取入口见应用内设置页]）。
+
+## 从源码运行
 
 ```bash
 npm install
