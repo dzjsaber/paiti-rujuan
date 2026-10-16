@@ -1,8 +1,22 @@
 /** 首页：题库统计 + 拍照/相册导入入口 + 设置入口。 */
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { CropModal } from '../components/CropModal';
+import { usePinchZoom } from '../components/usePinchZoom';
+import { cropImage, type CropRect } from '../services/image';
 import { countWrongBook } from '../db/repo_practice';
 import { countAllQuestions } from '../db/repo_questions';
 
@@ -47,6 +61,61 @@ export function HomeScreen({
   const [wrongCount, setWrongCount] = useState(0);
   /** 相册选图后先预览确认，再进入识别（避免点错图直接开跑） */
   const [preview, setPreview] = useState<ReviewParams | null>(null);
+  /** 裁剪：进入框选裁剪（CropModal）；originalPreview 用于还原 */
+  const [cropping, setCropping] = useState(false);
+  const [originalPreview, setOriginalPreview] = useState<ReviewParams | null>(null);
+
+  // 预览区的图片显示区（固定容器，contain 显示；双指缩放围绕容器中心）
+  const win = useWindowDimensions();
+  const previewW = Math.max(200, win.width - 40);
+  const previewH = Math.max(240, win.height - 330);
+  const pz = usePinchZoom(previewW, previewH);
+
+  const previewPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (evt) => {
+          pz.grant(evt.nativeEvent.touches);
+        },
+        onPanResponderStart: (evt) => {
+          pz.grant(evt.nativeEvent.touches);
+        },
+        onPanResponderMove: (evt) => {
+          pz.move(evt.nativeEvent.touches);
+        },
+        onPanResponderEnd: (evt) => {
+          pz.end(evt.nativeEvent.touches);
+        },
+        onPanResponderRelease: () => {
+          pz.end([]);
+        },
+        onPanResponderTerminate: () => {
+          pz.end([]);
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pz.grant, pz.move, pz.end],
+  );
+
+  const applyCrop = useCallback(
+    (rect: CropRect) => {
+      if (!preview) return;
+      void (async () => {
+        try {
+          const cropped = await cropImage(preview.imagePath, rect);
+          setOriginalPreview((o) => o ?? preview);
+          setPreview({ ...preview, imagePath: cropped.uri, imageWidth: cropped.width, imageHeight: cropped.height });
+          pz.reset();
+          setCropping(false);
+        } catch (e) {
+          Alert.alert('裁剪失败', String((e as Error)?.message ?? e));
+        }
+      })();
+    },
+    [preview, pz],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -112,22 +181,74 @@ export function HomeScreen({
     return (
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable onPress={() => setPreview(null)} hitSlop={8}>
+          <Pressable
+            onPress={() => {
+              setPreview(null);
+              setOriginalPreview(null);
+            }}
+            hitSlop={8}
+          >
             <Text style={styles.back}>← 返回</Text>
           </Pressable>
           <Text style={styles.title}>确认图片</Text>
           <View style={styles.spacer} />
         </View>
-        <Image source={{ uri: preview.imagePath }} style={styles.previewImage} resizeMode="contain" />
-        <Text style={styles.previewHint}>确认是这张图后再开始识别；不清晰可以返回重选。</Text>
+        <View
+          style={[styles.previewStage, { width: previewW, height: previewH }]}
+          {...previewPan.panHandlers}
+        >
+          <View
+            style={{
+              width: previewW,
+              height: previewH,
+              transform: [{ translateX: pz.zoom.tx }, { translateY: pz.zoom.ty }, { scale: pz.zoom.scale }],
+            }}
+          >
+            <Image source={{ uri: preview.imagePath }} style={{ width: previewW, height: previewH }} resizeMode="contain" />
+          </View>
+        </View>
+        <Text style={styles.previewHint}>
+          双指可缩放查看；确认是这张图后再开始识别{originalPreview ? '（识别裁剪后的图片）' : ''}
+        </Text>
+        {originalPreview && (
+          <Pressable
+            hitSlop={6}
+            onPress={() => {
+              setPreview(originalPreview);
+              setOriginalPreview(null);
+              pz.reset();
+            }}
+          >
+            <Text style={styles.previewRestore}>还原原图</Text>
+          </Pressable>
+        )}
         <View style={styles.previewBtns}>
-          <Pressable style={styles.previewGhost} onPress={() => setPreview(null)}>
+          <Pressable
+            style={styles.previewGhost}
+            onPress={() => {
+              setPreview(null);
+              setOriginalPreview(null);
+              pz.reset();
+            }}
+          >
             <Text style={styles.previewGhostText}>重选</Text>
+          </Pressable>
+          <Pressable style={styles.previewGhost} onPress={() => setCropping(true)}>
+            <Text style={styles.previewGhostText}>裁剪</Text>
           </Pressable>
           <Pressable style={styles.previewPrimary} onPress={() => onOpenReview(preview)}>
             <Text style={styles.previewPrimaryText}>开始识别</Text>
           </Pressable>
         </View>
+        <CropModal
+          visible={cropping}
+          imageUri={preview.imagePath}
+          imageWidth={preview.imageWidth ?? 1080}
+          imageHeight={preview.imageHeight ?? 1440}
+          confirmLabel="完成裁剪"
+          onCancel={() => setCropping(false)}
+          onConfirm={applyCrop}
+        />
       </View>
     );
   }
@@ -194,8 +315,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: '800', color: '#1a1a1a' },
   back: { fontSize: 15, color: '#1c5cd6' },
   spacer: { width: 52 },
-  previewImage: { flex: 1, marginTop: 12, borderRadius: 12, backgroundColor: '#eef1f6' },
+  previewStage: { marginTop: 12, alignSelf: 'center', borderRadius: 12, overflow: 'hidden', backgroundColor: '#eef1f6' },
   previewHint: { marginTop: 10, fontSize: 12, color: '#8a94a6', textAlign: 'center' },
+  previewRestore: { marginTop: 6, fontSize: 13, color: '#1c5cd6', textAlign: 'center' },
   previewBtns: { flexDirection: 'row', gap: 12, marginTop: 14, paddingBottom: 40 },
   previewGhost: {
     flex: 1,

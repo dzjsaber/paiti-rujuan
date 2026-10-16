@@ -17,12 +17,15 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import type { CropRect } from '../services/image';
+import { usePinchZoom } from './usePinchZoom';
 
 export interface CropModalProps {
   visible: boolean;
   imageUri: string;
   imageWidth: number;
   imageHeight: number;
+  /** 主按钮文案（默认用于识别；相册确认页裁剪时传"完成裁剪"） */
+  confirmLabel?: string;
   onCancel: () => void;
   onConfirm: (rect: CropRect) => void;
 }
@@ -74,17 +77,19 @@ function handleCenter(b: Box, h: HandleName): { x: number; y: number } {
   }
 }
 
-export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel, onConfirm }: CropModalProps) {
+export function CropModal({
+  visible,
+  imageUri,
+  imageWidth,
+  imageHeight,
+  confirmLabel = '识别该区域',
+  onCancel,
+  onConfirm,
+}: CropModalProps) {
   const { width: winW, height: winH } = useWindowDimensions();
   const [box, setBox] = useState<Box | null>(null);
   const boxRef = useRef<Box | null>(null);
   const dragRef = useRef<DragState | null>(null);
-  /** 双指缩放：围绕显示区中心缩放 + 平移（选框仍存"基准图片坐标"，缩放只影响显示） */
-  const [zoom, setZoom] = useState({ scale: 1, tx: 0, ty: 0 });
-  const zoomRef = useRef(zoom);
-  const pinchRef = useRef<{ d0: number; cx0: number; cy0: number; z0: { scale: number; tx: number; ty: number } } | null>(
-    null,
-  );
 
   const layout = useMemo(() => {
     const pad = 12;
@@ -98,34 +103,13 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
     return { w, h, scale, left: (winW - w) / 2, top: topBar };
   }, [winW, winH, imageWidth, imageHeight]);
 
+  /** 双指缩放：缩放只影响显示，选框仍存"基准图片坐标" */
+  const pz = usePinchZoom(layout.w, layout.h);
+  const zoom = pz.zoom;
+
   const setBoxBoth = (b: Box | null) => {
     boxRef.current = b;
     setBox(b);
-  };
-
-  const setZoomBoth = (z: { scale: number; tx: number; ty: number }) => {
-    zoomRef.current = z;
-    setZoom(z);
-  };
-
-  /** 屏幕坐标（相对 imageWrap）→ 基准图片坐标（考虑缩放与平移） */
-  const toImg = (lx: number, ly: number): { x: number; y: number } => {
-    const z = zoomRef.current;
-    const cx = layout.w / 2;
-    const cy = layout.h / 2;
-    return { x: (lx - cx - z.tx) / z.scale + cx, y: (ly - cy - z.ty) / z.scale + cy };
-  };
-
-  const beginPinch = (touches: readonly { pageX: number; pageY: number }[]) => {
-    const [a, b] = touches;
-    const d0 = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY) || 1;
-    pinchRef.current = {
-      d0,
-      cx0: (a.pageX + b.pageX) / 2,
-      cy0: (a.pageY + b.pageY) / 2,
-      z0: { ...zoomRef.current },
-    };
-    dragRef.current = null;
   };
 
   const hitHandle = (b: Box, px: number, py: number, scale = 1): HandleName | null => {
@@ -146,15 +130,14 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (evt) => {
-          const touches = evt.nativeEvent.touches;
-          if (touches.length >= 2) {
-            beginPinch(touches);
+          if (pz.grant(evt.nativeEvent.touches)) {
+            dragRef.current = null;
             return;
           }
-          const { x, y } = toImg(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
+          const { x, y } = pz.toImg(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
           const b = boxRef.current;
           if (b) {
-            const h = hitHandle(b, x, y, zoomRef.current.scale);
+            const h = hitHandle(b, x, y, pz.zoomRef.current.scale);
             if (h) {
               dragRef.current = { kind: 'handle', handle: h, startBox: { ...b } };
               return;
@@ -167,30 +150,17 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
           setBoxBoth({ x, y, w: 0, h: 0 });
           dragRef.current = { kind: 'draw', startX: x, startY: y };
         },
+        // 第二根手指按下（grant 只会在手势开始时触发一次）
+        onPanResponderStart: (evt) => {
+          if (pz.grant(evt.nativeEvent.touches)) {
+            dragRef.current = null;
+          }
+        },
         onPanResponderMove: (evt) => {
-          const touches = evt.nativeEvent.touches;
-          if (!pinchRef.current && touches.length >= 2) {
-            beginPinch(touches);
-            return;
-          }
-          if (pinchRef.current) {
-            if (touches.length < 2) return;
-            const [a, b] = touches;
-            const d = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY) || 1;
-            const p = pinchRef.current;
-            const scale = clamp((p.z0.scale * d) / p.d0, 1, 5);
-            const maxTx = (layout.w * (scale - 1)) / 2 + 30;
-            const maxTy = (layout.h * (scale - 1)) / 2 + 30;
-            setZoomBoth({
-              scale,
-              tx: scale === 1 ? 0 : clamp(p.z0.tx + ((a.pageX + b.pageX) / 2 - p.cx0), -maxTx, maxTx),
-              ty: scale === 1 ? 0 : clamp(p.z0.ty + ((a.pageY + b.pageY) / 2 - p.cy0), -maxTy, maxTy),
-            });
-            return;
-          }
+          if (pz.move(evt.nativeEvent.touches)) return;
           const d = dragRef.current;
           if (!d) return;
-          const { x, y } = toImg(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
+          const { x, y } = pz.toImg(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
           if (d.kind === 'draw') {
             const nx = clamp(Math.min(d.startX, x), 0, layout.w);
             const ny = clamp(Math.min(d.startY, y), 0, layout.h);
@@ -218,19 +188,20 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
           setBoxBoth({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
         },
         onPanResponderRelease: () => {
-          if (pinchRef.current) {
-            pinchRef.current = null;
-            return;
-          }
+          pz.end([]);
           dragRef.current = null;
         },
+        // 单指抬起但仍有其他手指在屏幕上（如缩放后先松一指）
+        onPanResponderEnd: (evt) => {
+          pz.end(evt.nativeEvent.touches);
+        },
         onPanResponderTerminate: () => {
-          pinchRef.current = null;
+          pz.end([]);
           dragRef.current = null;
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layout.w, layout.h],
+    [layout.w, layout.h, pz.grant, pz.move, pz.end, pz.toImg],
   );
 
   const confirm = () => {
@@ -290,10 +261,10 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
             <Text style={styles.ghostText}>取消</Text>
           </Pressable>
           <Pressable style={[styles.primary, !canConfirm && styles.primaryDisabled]} onPress={confirm} disabled={!canConfirm}>
-            <Text style={styles.primaryText}>识别该区域</Text>
+            <Text style={styles.primaryText}>{confirmLabel}</Text>
           </Pressable>
         </View>
-        {!canConfirm && <Text style={styles.hint}>请先在图片上框出要识别的区域</Text>}
+        {!canConfirm && <Text style={styles.hint}>请先在图片上框出区域</Text>}
       </View>
     </Modal>
   );

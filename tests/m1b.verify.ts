@@ -12,6 +12,7 @@ import { stemHash } from '../src/core/dedupe';
 import { isTextAnswerCorrect } from '../src/core/answerCheck';
 import { toCropRect } from '../src/core/figureBox';
 import { toQuestionType } from '../src/core/models';
+import { screenToImage } from '../src/components/usePinchZoom';
 
 let passed = 0;
 const failures: string[] = [];
@@ -397,6 +398,18 @@ check('中文题型别名：F2 与 toQuestionType 均能映射（防模型输出
   assert.equal(toQuestionType('填空'), 'fill');
   assert.equal(toQuestionType('解答'), 'single', '未知类型按 single 兜底');
   assert.equal(f2ValidateQuestion({ ...q, type: '解答' }).status, 'invalid', '枚举外类型仍判无效');
+});
+
+check('screenToImage：缩放/平移下的屏幕→图片坐标换算', () => {
+  const p1 = screenToImage(50, 30, 400, 200, { scale: 1, tx: 0, ty: 0 });
+  assert.equal(p1.x, 50);
+  assert.equal(p1.y, 30);
+  const p2 = screenToImage(300, 200, 400, 200, { scale: 2, tx: 0, ty: 0 });
+  assert.equal(p2.x, 250);
+  assert.equal(p2.y, 150);
+  const p3 = screenToImage(300, 200, 400, 200, { scale: 2, tx: 40, ty: -20 });
+  assert.equal(p3.x, 230);
+  assert.equal(p3.y, 160);
 });
 
 // ---------------------------------------------------------------- 汇总
