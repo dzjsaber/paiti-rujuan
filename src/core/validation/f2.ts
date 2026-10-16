@@ -7,7 +7,7 @@
  * - 归一化是可选项：默认对模型原始输出严格校验；链路中可用 normalize 选项先做机械修复。
  */
 import type { QuestionType, ReviewStatus } from '../models';
-import { VISUAL_FEATURES } from '../models';
+import { VISUAL_FEATURES, typeAliasOrNull } from '../models';
 import { stemHash } from '../dedupe';
 import { normalizeAnswer, normalizeOptions } from './normalize';
 
@@ -32,8 +32,6 @@ export interface F2Options {
   minStemLength?: number;
 }
 
-const QUESTION_TYPES: ReadonlySet<string> = new Set<QuestionType>(['single', 'multiple', 'judge', 'fill']);
-
 function invalid(...messages: string[]): F2Result {
   return { status: 'invalid', issues: messages.map((m) => ({ rule: m.slice(0, 2), message: m })) };
 }
@@ -51,11 +49,11 @@ export function f2ValidateQuestion(input: unknown, opts: F2Options = {}): F2Resu
   }
   const q = input as Record<string, unknown>;
 
-  const type = q.type;
-  if (typeof type !== 'string' || !QUESTION_TYPES.has(type)) {
-    return invalid(`V1/V2: type 非法「${String(type)}」，仅支持 single/multiple/judge/fill`);
+  // 已知中文别名（单选/填空…）映射为英文枚举；其余非法类型仍判无效
+  const qtype = typeAliasOrNull(q.type);
+  if (!qtype) {
+    return invalid(`V1/V2: type 非法「${String(q.type)}」，仅支持 single/multiple/judge/fill`);
   }
-  const qtype = type as QuestionType;
 
   const stem = typeof q.stem === 'string' ? q.stem.trim() : '';
   if (!stem) return invalid('V4: 题干为空或非文本');

@@ -79,6 +79,12 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
   const [box, setBox] = useState<Box | null>(null);
   const boxRef = useRef<Box | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  /** 双指缩放：围绕显示区中心缩放 + 平移（选框仍存"基准图片坐标"，缩放只影响显示） */
+  const [zoom, setZoom] = useState({ scale: 1, tx: 0, ty: 0 });
+  const zoomRef = useRef(zoom);
+  const pinchRef = useRef<{ d0: number; cx0: number; cy0: number; z0: { scale: number; tx: number; ty: number } } | null>(
+    null,
+  );
 
   const layout = useMemo(() => {
     const pad = 12;
@@ -97,10 +103,36 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
     setBox(b);
   };
 
-  const hitHandle = (b: Box, px: number, py: number): HandleName | null => {
+  const setZoomBoth = (z: { scale: number; tx: number; ty: number }) => {
+    zoomRef.current = z;
+    setZoom(z);
+  };
+
+  /** 屏幕坐标（相对 imageWrap）→ 基准图片坐标（考虑缩放与平移） */
+  const toImg = (lx: number, ly: number): { x: number; y: number } => {
+    const z = zoomRef.current;
+    const cx = layout.w / 2;
+    const cy = layout.h / 2;
+    return { x: (lx - cx - z.tx) / z.scale + cx, y: (ly - cy - z.ty) / z.scale + cy };
+  };
+
+  const beginPinch = (touches: readonly { pageX: number; pageY: number }[]) => {
+    const [a, b] = touches;
+    const d0 = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY) || 1;
+    pinchRef.current = {
+      d0,
+      cx0: (a.pageX + b.pageX) / 2,
+      cy0: (a.pageY + b.pageY) / 2,
+      z0: { ...zoomRef.current },
+    };
+    dragRef.current = null;
+  };
+
+  const hitHandle = (b: Box, px: number, py: number, scale = 1): HandleName | null => {
     for (const h of HANDLES) {
       const c = handleCenter(b, h);
-      if (Math.abs(px - c.x) <= HANDLE_HIT && Math.abs(py - c.y) <= HANDLE_HIT) return h;
+      const reach = HANDLE_HIT / scale;
+      if (Math.abs(px - c.x) <= reach && Math.abs(py - c.y) <= reach) return h;
     }
     return null;
   };
@@ -114,10 +146,15 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (evt) => {
-          const { locationX: x, locationY: y } = evt.nativeEvent;
+          const touches = evt.nativeEvent.touches;
+          if (touches.length >= 2) {
+            beginPinch(touches);
+            return;
+          }
+          const { x, y } = toImg(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
           const b = boxRef.current;
           if (b) {
-            const h = hitHandle(b, x, y);
+            const h = hitHandle(b, x, y, zoomRef.current.scale);
             if (h) {
               dragRef.current = { kind: 'handle', handle: h, startBox: { ...b } };
               return;
@@ -131,9 +168,29 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
           dragRef.current = { kind: 'draw', startX: x, startY: y };
         },
         onPanResponderMove: (evt) => {
+          const touches = evt.nativeEvent.touches;
+          if (!pinchRef.current && touches.length >= 2) {
+            beginPinch(touches);
+            return;
+          }
+          if (pinchRef.current) {
+            if (touches.length < 2) return;
+            const [a, b] = touches;
+            const d = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY) || 1;
+            const p = pinchRef.current;
+            const scale = clamp((p.z0.scale * d) / p.d0, 1, 5);
+            const maxTx = (layout.w * (scale - 1)) / 2 + 30;
+            const maxTy = (layout.h * (scale - 1)) / 2 + 30;
+            setZoomBoth({
+              scale,
+              tx: scale === 1 ? 0 : clamp(p.z0.tx + ((a.pageX + b.pageX) / 2 - p.cx0), -maxTx, maxTx),
+              ty: scale === 1 ? 0 : clamp(p.z0.ty + ((a.pageY + b.pageY) / 2 - p.cy0), -maxTy, maxTy),
+            });
+            return;
+          }
           const d = dragRef.current;
           if (!d) return;
-          const { locationX: x, locationY: y } = evt.nativeEvent;
+          const { x, y } = toImg(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
           if (d.kind === 'draw') {
             const nx = clamp(Math.min(d.startX, x), 0, layout.w);
             const ny = clamp(Math.min(d.startY, y), 0, layout.h);
@@ -161,9 +218,14 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
           setBoxBoth({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
         },
         onPanResponderRelease: () => {
+          if (pinchRef.current) {
+            pinchRef.current = null;
+            return;
+          }
           dragRef.current = null;
         },
         onPanResponderTerminate: () => {
+          pinchRef.current = null;
           dragRef.current = null;
         },
       }),
@@ -187,27 +249,38 @@ export function CropModal({ visible, imageUri, imageWidth, imageHeight, onCancel
   return (
     <Modal visible={visible} transparent onRequestClose={onCancel}>
       <View style={styles.bg}>
-        <Text style={styles.tip}>拖动框选区域；松开后拖小方块可微调边界，拖框内可移动</Text>
+        <Text style={styles.tip}>拖动框选区域；双指可缩放图片；松开后拖小方块可微调边界</Text>
         <View
-          style={[styles.imageWrap, { position: 'absolute', left: layout.left, top: layout.top, width: layout.w, height: layout.h }]}
+          style={[
+            styles.imageWrap,
+            { position: 'absolute', left: layout.left, top: layout.top, width: layout.w, height: layout.h, overflow: 'hidden' },
+          ]}
           {...panResponder.panHandlers}
         >
-          <Image source={{ uri: imageUri }} style={{ width: layout.w, height: layout.h }} resizeMode="stretch" />
-          {box && (
-            <>
-              <View pointerEvents="none" style={[styles.selBox, { left: box.x, top: box.y, width: box.w, height: box.h }]} />
-              {HANDLES.map((h) => {
-                const c = handleCenter(box, h);
-                return (
-                  <View
-                    key={h}
-                    pointerEvents="none"
-                    style={[styles.handle, { left: c.x - HANDLE_VISUAL / 2, top: c.y - HANDLE_VISUAL / 2 }]}
-                  />
-                );
-              })}
-            </>
-          )}
+          <View
+            style={{
+              width: layout.w,
+              height: layout.h,
+              transform: [{ translateX: zoom.tx }, { translateY: zoom.ty }, { scale: zoom.scale }],
+            }}
+          >
+            <Image source={{ uri: imageUri }} style={{ width: layout.w, height: layout.h }} resizeMode="stretch" />
+            {box && (
+              <>
+                <View pointerEvents="none" style={[styles.selBox, { left: box.x, top: box.y, width: box.w, height: box.h }]} />
+                {HANDLES.map((h) => {
+                  const c = handleCenter(box, h);
+                  return (
+                    <View
+                      key={h}
+                      pointerEvents="none"
+                      style={[styles.handle, { left: c.x - HANDLE_VISUAL / 2, top: c.y - HANDLE_VISUAL / 2 }]}
+                    />
+                  );
+                })}
+              </>
+            )}
+          </View>
         </View>
         <View style={styles.bar}>
           <Pressable style={styles.ghost} onPress={() => setBoxBoth(null)}>

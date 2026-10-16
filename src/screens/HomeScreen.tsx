@@ -1,6 +1,6 @@
 /** 首页：题库统计 + 拍照/相册导入入口 + 设置入口。 */
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { countWrongBook } from '../db/repo_practice';
@@ -45,6 +45,8 @@ export function HomeScreen({
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [wrongCount, setWrongCount] = useState(0);
+  /** 相册选图后先预览确认，再进入识别（避免点错图直接开跑） */
+  const [preview, setPreview] = useState<ReviewParams | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -93,7 +95,7 @@ export function HomeScreen({
       const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
       if (res.canceled || !res.assets?.length) return;
       const a = res.assets[0];
-      onOpenReview({
+      setPreview({
         imagePath: a.uri,
         imageWidth: a.width ?? undefined,
         imageHeight: a.height ?? undefined,
@@ -104,7 +106,31 @@ export function HomeScreen({
     } finally {
       setBusy(false);
     }
-  }, [onOpenReview]);
+  }, []);
+
+  if (preview) {
+    return (
+      <View style={styles.page}>
+        <View style={styles.header}>
+          <Pressable onPress={() => setPreview(null)} hitSlop={8}>
+            <Text style={styles.back}>← 返回</Text>
+          </Pressable>
+          <Text style={styles.title}>确认图片</Text>
+          <View style={styles.spacer} />
+        </View>
+        <Image source={{ uri: preview.imagePath }} style={styles.previewImage} resizeMode="contain" />
+        <Text style={styles.previewHint}>确认是这张图后再开始识别；不清晰可以返回重选。</Text>
+        <View style={styles.previewBtns}>
+          <Pressable style={styles.previewGhost} onPress={() => setPreview(null)}>
+            <Text style={styles.previewGhostText}>重选</Text>
+          </Pressable>
+          <Pressable style={styles.previewPrimary} onPress={() => onOpenReview(preview)}>
+            <Text style={styles.previewPrimaryText}>开始识别</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.scrollContent}>
@@ -166,6 +192,23 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#f7f8fa', paddingTop: 64, paddingHorizontal: 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 26, fontWeight: '800', color: '#1a1a1a' },
+  back: { fontSize: 15, color: '#1c5cd6' },
+  spacer: { width: 52 },
+  previewImage: { flex: 1, marginTop: 12, borderRadius: 12, backgroundColor: '#eef1f6' },
+  previewHint: { marginTop: 10, fontSize: 12, color: '#8a94a6', textAlign: 'center' },
+  previewBtns: { flexDirection: 'row', gap: 12, marginTop: 14, paddingBottom: 40 },
+  previewGhost: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#cfd9ea',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  previewGhostText: { color: '#31518a', fontSize: 15 },
+  previewPrimary: { flex: 1, borderRadius: 12, backgroundColor: '#1c5cd6', alignItems: 'center', paddingVertical: 14 },
+  previewPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   settingsBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, backgroundColor: '#e8ecf3' },
   settingsText: { fontSize: 14, color: '#31518a' },
   statCard: { marginTop: 24, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 18, alignItems: 'center' },

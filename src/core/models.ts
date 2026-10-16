@@ -14,7 +14,29 @@ export type QuestionType = 'single' | 'multiple' | 'judge' | 'fill';
 
 /** 模型输出的题型 → 领域题型（枚举外一律按单选处理，交给 F2 判无效） */
 export function toQuestionType(raw: unknown): QuestionType {
-  return raw === 'multiple' || raw === 'judge' || raw === 'fill' ? raw : 'single';
+  if (raw === 'multiple' || raw === 'judge' || raw === 'fill') return raw;
+  return TYPE_ALIASES[typeof raw === 'string' ? raw.trim() : ''] ?? 'single';
+}
+
+/**
+ * 模型偶发输出中文题型（实测 glm-4.5v 关思考时输出"单选/填空"导致全部判无效）：
+ * 已知别名映射到英文枚举；其余返回 null，由 F2 判非法。
+ */
+export const TYPE_ALIASES: Record<string, QuestionType> = {
+  单选: 'single',
+  多选题: 'multiple',
+  多选: 'multiple',
+  判断: 'judge',
+  判断题: 'judge',
+  填空: 'fill',
+  填空题: 'fill',
+  简答: 'fill',
+  简答题: 'fill',
+};
+
+export function typeAliasOrNull(raw: unknown): QuestionType | null {
+  if (raw === 'single' || raw === 'multiple' || raw === 'judge' || raw === 'fill') return raw;
+  return TYPE_ALIASES[typeof raw === 'string' ? raw.trim() : ''] ?? null;
 }
 
 /** 正式题库中题目的状态（questions.status） */

@@ -11,6 +11,7 @@ import { classifyApiError } from '../src/services/llm/errors';
 import { stemHash } from '../src/core/dedupe';
 import { isTextAnswerCorrect } from '../src/core/answerCheck';
 import { toCropRect } from '../src/core/figureBox';
+import { toQuestionType } from '../src/core/models';
 
 let passed = 0;
 const failures: string[] = [];
@@ -374,6 +375,28 @@ check('toCropRect：比例/像素/0-1000 归一化坐标与边界处理', () => 
   assert(toCropRect([5, 5, 20, 20], 800, 400) === null, '过小区域应放弃');
   assert(toCropRect([100, 100, 50, 50], 800, 400) === null, '反向框应放弃');
   assert(toCropRect('nope', 800, 400) === null, '非数组应放弃');
+});
+
+check('中文题型别名：F2 与 toQuestionType 均能映射（防模型输出中文 type 导致全部无效）', () => {
+  const q = {
+    type: '单选',
+    stem: '下列关于函数的说法正确的是',
+    options: [
+      { id: 'A', text: '甲' },
+      { id: 'B', text: '乙' },
+    ],
+    answer: 'A',
+    confidence: 0.9,
+    review_reasons: [],
+    visual_features: [],
+  };
+  assert.equal(f2ValidateQuestion(q).status, 'passed', '中文 type「单选」应通过校验');
+  assert.equal(toQuestionType('单选'), 'single');
+  assert.equal(toQuestionType('多选'), 'multiple');
+  assert.equal(toQuestionType('判断题'), 'judge');
+  assert.equal(toQuestionType('填空'), 'fill');
+  assert.equal(toQuestionType('解答'), 'single', '未知类型按 single 兜底');
+  assert.equal(f2ValidateQuestion({ ...q, type: '解答' }).status, 'invalid', '枚举外类型仍判无效');
 });
 
 // ---------------------------------------------------------------- 汇总

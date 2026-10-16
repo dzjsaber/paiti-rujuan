@@ -18,6 +18,8 @@ export const RECOGNITION_PROMPT = `你是专业的试卷结构化引擎。请从
 每道题格式：
 {"type": "single | multiple | judge | fill", "stem": "题干原文", "options": [{"id": "A", "text": "选项文本"}], "answer": "单选为选项ID字符串 / 多选为选项ID数组 / 判断为布尔值 / 填空简答为文本 / 未知为 null", "figures": [{"target": "stem | options", "bbox": [x0, y0, x1, y1]}], "confidence": 0.0, "review_reasons": [], "visual_features": []}
 
+type 字段必须使用英文枚举值：single、multiple、judge、fill；不得输出"单选""填空"等中文类型。
+
 规则：
 1. 不要推测试卷上未提供的正确答案。未印答案时 answer 为 null。
 2. judge 题 options 输出空数组；answer 只能是布尔值 true、false 或 null。multiple 题的 answer 必须是选项 ID 数组，不得输出 "ACD" 之类字符串。填空题与简答题输出 type "fill"：题干保留空位原文（如 "____"），options 输出空数组，answer 为文本或 null；作文题、论述题不要输出。
