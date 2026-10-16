@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { BankMaterialPicker } from '../components/BankMaterialPicker';
 import type { QuestionDraft, QuestionType } from '../core/models';
@@ -39,6 +40,40 @@ export interface BankScreenProps {
   /** 答案文档的 AI 规范化兜底要走"文档切题"设置里的提供商 */
   llm: LLMService;
   onBack: () => void;
+}
+
+interface ImgPaths {
+  source_image_path: string | null;
+  question_image_path: string | null;
+}
+
+/**
+ * 删除题目（组）后清理图片文件：题目配图每题独立直接删；
+ * 来源整页图可能被同页多题共享，先查全表引用，无引用才删。清理失败不阻塞。
+ */
+async function cleanupQuestionFiles(db: SQLiteDatabase, imgs: ImgPaths[]): Promise<void> {
+  const sources = new Set<string>();
+  for (const img of imgs) {
+    if (img.question_image_path) {
+      try {
+        await FileSystemLegacy.deleteAsync(img.question_image_path, { idempotent: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    if (img.source_image_path) sources.add(img.source_image_path);
+  }
+  for (const s of sources) {
+    try {
+      const remain = await db.getFirstAsync<{ c: number }>(
+        'SELECT COUNT(*) AS c FROM questions WHERE source_image_path = ?',
+        s,
+      );
+      if ((remain?.c ?? 0) === 0) await FileSystemLegacy.deleteAsync(s, { idempotent: true });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function answerToText(a: unknown): string {
@@ -144,7 +179,7 @@ export function BankScreen({ db, llm, onBack }: BankScreenProps) {
       Alert.alert(
         `删除题库「${b.name}」？`,
         b.count > 0
-          ? `库内 ${b.count} 道题目、相关错题与做题记录将一并删除，无法恢复。`
+          ? `库内 ${b.count} 道题目、相关错题、做题记录与图片文件将一并删除，无法恢复。`
           : '该题库没有题目。',
         [
           { text: '取消', style: 'cancel' },
@@ -154,7 +189,14 @@ export function BankScreen({ db, llm, onBack }: BankScreenProps) {
             onPress: () => {
               void (async () => {
                 try {
+                  const imgs = await db
+                    .getAllAsync<ImgPaths>(
+                      'SELECT source_image_path, question_image_path FROM questions WHERE bank_id = ?',
+                      b.id,
+                    )
+                    .catch(() => [] as ImgPaths[]);
                   await deleteBank(db, b.id);
+                  await cleanupQuestionFiles(db, imgs);
                   await refreshBanks();
                 } catch (e) {
                   Alert.alert('删除失败', String((e as Error)?.message ?? e));
@@ -342,14 +384,18 @@ export function BankScreen({ db, llm, onBack }: BankScreenProps) {
 
   const remove = useCallback(
     (id: string) => {
-      Alert.alert('删除这道题？', '同时会清理它的错题本记录与做题记录，无法恢复。', [
+      Alert.alert('删除这道题？', '同时会清理它的错题本、做题记录与图片文件，无法恢复。', [
         { text: '取消', style: 'cancel' },
         {
           text: '删除',
           style: 'destructive',
           onPress: () => {
             void (async () => {
+              const imgs = await db
+                .getAllAsync<ImgPaths>('SELECT source_image_path, question_image_path FROM questions WHERE id = ?', id)
+                .catch(() => [] as ImgPaths[]);
               await deleteQuestion(db, id);
+              await cleanupQuestionFiles(db, imgs);
               setEditing(null);
               await refresh();
             })();

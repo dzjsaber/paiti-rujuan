@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { MathText } from '../components/MathText';
 import { isTextAnswerCorrect } from '../core/answerCheck';
 import { buildSearchTerms, clipHitText } from '../core/searchTerms';
 import { searchMaterialsSmart } from '../db/fts';
@@ -696,7 +697,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
 
       <ScrollView ref={scrollRef} style={styles.body} contentContainerStyle={styles.bodyContent}>
         <View style={styles.stemCard}>
-          <Text style={styles.stemText}>{q.stem}</Text>
+          <MathText text={q.stem} style={styles.stemText} />
         </View>
 
         <Pressable style={styles.favRow} onPress={() => void toggleFavorite()}>
@@ -722,9 +723,10 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
               onPress={() => pickOption(o.id)}
               disabled={judged}
             >
-              <Text style={[styles.optText, (correctOpt || wrongPick) && styles.optTextStrong]}>
-                {q.type === 'judge' ? o.text : `${o.id}. ${o.text}`}
-              </Text>
+              <MathText
+                text={q.type === 'judge' ? o.text : `${o.id}. ${o.text}`}
+                style={[styles.optText, (correctOpt || wrongPick) && styles.optTextStrong]}
+              />
             </Pressable>
           );
         })}
@@ -749,7 +751,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 该题暂无答案，无法自动判定。可点下方"AI 讲解"获取答案与解析，或在题库管理里补充答案。
               </Text>
             )}
-            {q.analysis ? <Text style={styles.analysisText}>解析：{q.analysis}</Text> : null}
+            {q.analysis ? <MathText text={`解析：${q.analysis}`} style={styles.analysisText} /> : null}
             {shownExplain === null && (
               <Pressable style={styles.explainBtn} onPress={() => void onExplainPress()}>
                 <Text style={styles.explainBtnText}>{explainProvider === 'external' ? '发给豆包讲解' : 'AI 讲解'}</Text>
@@ -783,7 +785,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             ) : null}
             {shownExplain?.text ? (
               <View style={styles.explainCard}>
-                <Text style={styles.explainText}>{shownExplain.text}</Text>
+                <MathText text={shownExplain.text} style={styles.explainText} />
                 {shownExplain.evidence.length > 0 ? (
                   <View style={styles.evidenceBox}>
                     <Pressable onPress={() => setShowEvidence((v) => !v)} hitSlop={6}>

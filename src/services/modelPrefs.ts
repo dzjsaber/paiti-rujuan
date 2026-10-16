@@ -8,7 +8,7 @@
  */
 import * as SecureStore from 'expo-secure-store';
 
-export type ModelTier = 'glm-4.6v-flash' | 'glm-4.6v' | 'deepseek-flash';
+export type ModelTier = 'glm-4.6v-flash' | 'glm-4.6v' | 'deepseek-flash' | 'custom';
 
 const STORE_KEY = 'vision_model_tier';
 
@@ -29,14 +29,20 @@ export const MODEL_TIERS: Record<ModelTier, ModelTierInfo> = {
   'glm-4.6v': {
     id: 'glm-4.6v',
     label: 'GLM-4.6V',
-    tagline: '智谱 · 按量计费（约 0.01 元/页）',
-    detail: '实测识别更稳定（修复编造题目、选项错位与符号格式问题），费用从你的智谱账户扣除。',
+    tagline: '智谱 · 按量计费',
+    detail: '实测识别更稳定（修复编造题目、选项错位）；约 0.01 元/页，费用从智谱账户扣除。',
   },
   'deepseek-flash': {
     id: 'deepseek-flash',
     label: 'DeepSeek-V4.1-Flash',
-    tagline: 'DeepSeek · 按量计费（约 1~2 分/页）',
-    detail: '实测约 8 秒/页，速度最快（支持图像理解）；需先在"API Key"分组配置 DeepSeek Key。',
+    tagline: 'DeepSeek · 按量计费 · 最快',
+    detail: '实测约 8 秒/页（目前最快的可用识别）；约 1~2 分钱/页，需配置 DeepSeek Key。',
+  },
+  custom: {
+    id: 'custom',
+    label: '自定义（OpenAI 兼容）',
+    tagline: '用"附加配置"的接口',
+    detail: '把识别请求发到你配置的自定义接口：需填支持图片输入的模型（如各平台的 VL 模型）。',
   },
 };
 
@@ -46,7 +52,7 @@ export async function getModelTier(): Promise<ModelTier> {
     // 兼容旧值：free → glm-4.6v-flash，pro → glm-4.6v
     if (v === 'free') return 'glm-4.6v-flash';
     if (v === 'pro') return 'glm-4.6v';
-    if (v === 'glm-4.6v-flash' || v === 'glm-4.6v' || v === 'deepseek-flash') return v;
+    if (v === 'glm-4.6v-flash' || v === 'glm-4.6v' || v === 'deepseek-flash' || v === 'custom') return v;
     return 'glm-4.6v-flash';
   } catch {
     return 'glm-4.6v-flash';

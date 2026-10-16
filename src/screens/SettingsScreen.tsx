@@ -428,10 +428,10 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   tierCardActive: { borderColor: '#1c5cd6', backgroundColor: '#f3f7ff' },
-  tierHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  tierLabel: { fontSize: 15, fontWeight: '700', color: '#333' },
+  tierHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  tierLabel: { flexShrink: 1, fontSize: 15, fontWeight: '700', color: '#333' },
   tierLabelActive: { color: '#1c5cd6' },
-  tierTag: { fontSize: 12, color: '#66707f' },
+  tierTag: { marginLeft: 8, flexShrink: 1, fontSize: 12, color: '#66707f', textAlign: 'right' },
   tierDetail: { marginTop: 6, fontSize: 12, color: '#556', lineHeight: 18 },
   tierModel: { marginTop: 6, fontSize: 11, color: '#98a2b3' },
 });

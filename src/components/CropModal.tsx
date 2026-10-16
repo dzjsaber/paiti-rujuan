@@ -7,7 +7,7 @@
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import type { CropRect } from '../services/image';
 import { usePinchZoom } from './usePinchZoom';
 
@@ -218,6 +218,8 @@ export function CropModal({
 
   return (
     <Modal visible={visible} transparent onRequestClose={onCancel}>
+      {/* RN Modal 是独立的原生视图树，手势必须在 Modal 内再包一层 GestureHandlerRootView，否则全部失灵 */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.bg}>
         <View style={styles.toolRow}>
           <Pressable style={[styles.toolBtn, tool === 'crop' && styles.toolBtnOn]} onPress={() => setTool('crop')}>
@@ -278,6 +280,7 @@ export function CropModal({
         </View>
         {!canConfirm && <Text style={styles.hint}>请先在图片上框出区域</Text>}
       </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

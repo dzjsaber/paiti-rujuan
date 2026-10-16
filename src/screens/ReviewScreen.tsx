@@ -18,7 +18,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { BankMaterialPicker } from '../components/BankMaterialPicker';
 import { CropModal } from '../components/CropModal';
@@ -51,7 +51,7 @@ import type { LLMService } from '../services/llm/LLMService';
 import { getModelTier, modelIdForTier } from '../services/modelPrefs';
 import { parseModelText } from '../services/llm/ResponseParser';
 import { DEEPSEEK_CHAT_URL, VISION_FALLBACK_MODEL } from '../services/llm/LLMService';
-import { getDeepseekKey } from '../services/llm/providers';
+import { getCustomConfig, getDeepseekKey } from '../services/llm/providers';
 import { ZhipuVisionEngine } from '../services/recognition/zhipuVision';
 
 type Phase = 'recognizing' | 'reviewing' | 'inserting' | 'done' | 'error';
@@ -340,6 +340,18 @@ export function ReviewScreen({
             endpoint: { url: DEEPSEEK_CHAT_URL, apiKey: dsKey },
             imageFormat: 'dataUri',
             thinking: 'disabled',
+          });
+        } else if (tier === 'custom') {
+          // 自定义识别：用"附加配置"里的 OpenAI 兼容接口（需支持图片输入的模型）
+          const cfg = await getCustomConfig();
+          if (!cfg.url || !cfg.model || !cfg.apiKey) {
+            setError('识别模型已选择"自定义接口"，但 设置 → 附加配置 里的地址/模型/Key 未填完整。');
+            setPhase('error');
+            return;
+          }
+          engine = new ZhipuVisionEngine(llm, cfg.model, {
+            endpoint: { url: cfg.url, apiKey: cfg.apiKey },
+            imageFormat: 'dataUri',
           });
         } else {
           engine = new ZhipuVisionEngine(llm, modelIdForTier(tier));
@@ -956,6 +968,8 @@ export function ReviewScreen({
       </Modal>
 
       <Modal visible={showImage} transparent onRequestClose={() => setShowImage(false)}>
+        {/* Modal 内的手势需要单独的 GestureHandlerRootView（同 CropModal） */}
+        <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={styles.modalBg}>
           <GestureDetector gesture={imgGesture}>
             <View style={{ width: winW, height: winH * 0.85, overflow: 'hidden' }}>
@@ -985,6 +999,7 @@ export function ReviewScreen({
             <Text style={styles.modalCloseText}>关闭</Text>
           </Pressable>
         </View>
+        </GestureHandlerRootView>
       </Modal>
 
       <Modal visible={showBankPicker} transparent animationType="slide" onRequestClose={() => setShowBankPicker(false)}>
