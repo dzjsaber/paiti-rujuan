@@ -110,7 +110,7 @@ check('resolveExplainTarget：智谱高级 → glm-5.3', () => {
 check('resolveExplainTarget：DeepSeek（无 Key 提示 / 有 Key 指向官方端点）', () => {
   assert(resolveExplainTarget('deepseek', NO_SECRETS).kind === 'missing_config', '无 Key 应提示');
   const ok = resolveExplainTarget('deepseek', { ...NO_SECRETS, deepseekApiKey: 'd' });
-  assert(ok.kind === 'api' && ok.url === DEEPSEEK_URL && ok.model === 'deepseek-chat', '应指向 DeepSeek 官方端点');
+  assert(ok.kind === 'api' && ok.url === DEEPSEEK_URL && ok.model === 'deepseek-flash', '应指向 DeepSeek 官方端点（deepseek-flash）');
 });
 
 check('resolveExplainTarget：自定义（缺项逐级提示 / 完整通过）', () => {

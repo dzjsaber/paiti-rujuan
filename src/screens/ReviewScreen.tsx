@@ -50,7 +50,8 @@ import { cropImage, makeHalves, prepareImageForRecognition, type CropRect, type 
 import type { LLMService } from '../services/llm/LLMService';
 import { getModelTier, modelIdForTier } from '../services/modelPrefs';
 import { parseModelText } from '../services/llm/ResponseParser';
-import { VISION_FALLBACK_MODEL } from '../services/llm/LLMService';
+import { DEEPSEEK_CHAT_URL, VISION_FALLBACK_MODEL } from '../services/llm/LLMService';
+import { getDeepseekKey } from '../services/llm/providers';
 import { ZhipuVisionEngine } from '../services/recognition/zhipuVision';
 
 type Phase = 'recognizing' | 'reviewing' | 'inserting' | 'done' | 'error';
@@ -326,7 +327,23 @@ export function ReviewScreen({
           await updatePageStatus(db, pageRef.current, 'processing', null, true);
         }
         const tier = await getModelTier();
-        const engine = new ZhipuVisionEngine(llm, modelIdForTier(tier));
+        let engine: ZhipuVisionEngine;
+        if (tier === 'deepseek-flash') {
+          // DeepSeek 识别：需 Key；图片用 data URI；默认思考会吃光输出预算，关思考（实测约 8 秒/页）
+          const dsKey = await getDeepseekKey();
+          if (!dsKey) {
+            setError('识别模型已选择 DeepSeek，但未配置 DeepSeek Key：请在 设置 → API Key 里填写后重试。');
+            setPhase('error');
+            return;
+          }
+          engine = new ZhipuVisionEngine(llm, 'deepseek-flash', {
+            endpoint: { url: DEEPSEEK_CHAT_URL, apiKey: dsKey },
+            imageFormat: 'dataUri',
+            thinking: 'disabled',
+          });
+        } else {
+          engine = new ZhipuVisionEngine(llm, modelIdForTier(tier));
+        }
 
         const finish = async (
           outcome: RecognizeOutcome,

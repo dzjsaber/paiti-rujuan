@@ -156,7 +156,7 @@ async function main(): Promise<void> {
     assert(s2.push(': keep-alive\n\ndata: {"choices":[{"delta":{"content":"A"}}]}\n') === 'A', '注释行应忽略');
   });
 
-  await check('thinking 参数仅智谱端点附加（其他提供商不发送）', async () => {
+  await check('thinking 参数：智谱/DeepSeek 附加，自定义不附加，GLM-5.3 不附加', async () => {
     const bodies: Record<string, unknown>[] = [];
     const fetchImpl: FetchLike = async (_input, init) => {
       bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -169,9 +169,18 @@ async function main(): Promise<void> {
     await svc.complete('hi', {
       retryDelayMs: 0,
       thinking: 'disabled',
+      model: 'deepseek-flash',
+      endpoint: { url: 'https://api.deepseek.com/chat/completions', apiKey: 'x' },
+    });
+    assert(bodies[1] && 'thinking' in bodies[1], 'DeepSeek 端点应带 thinking');
+    await svc.complete('hi', {
+      retryDelayMs: 0,
+      thinking: 'disabled',
       endpoint: { url: 'https://api.example.com/v1/chat/completions', apiKey: 'x' },
     });
-    assert(bodies[1] && !('thinking' in bodies[1]), '非智谱端点不应带 thinking');
+    assert(bodies[2] && !('thinking' in bodies[2]), '自定义端点不应带 thinking');
+    await svc.complete('hi', { retryDelayMs: 0, thinking: 'disabled', model: 'glm-5.3' });
+    assert(bodies[3] && !('thinking' in bodies[3]), 'GLM-5.3 不支持关闭思考，不应携带 disabled');
   });
 
   await check('外部取消：abort 后立即返回"已取消"，不重试', async () => {

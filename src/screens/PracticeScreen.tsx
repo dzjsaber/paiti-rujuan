@@ -686,6 +686,11 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           <Pressable onPress={() => setOrderState((o) => (o === 'seq' ? 'random' : 'seq'))} hitSlop={6}>
             <Text style={styles.counter}>{orderState === 'random' ? '随机 ⇄' : '顺序 ⇄'}</Text>
           </Pressable>
+          {mode === 'bank' && (
+            <Pressable onPress={() => setFavOnly((v) => !v)} hitSlop={6}>
+              <Text style={[styles.counter, favOnly && styles.counterOn]}>{favOnly ? '★ 收藏 ⇄' : '☆ 收藏'}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -923,6 +928,7 @@ const styles = StyleSheet.create({
   title: { flexShrink: 1, marginHorizontal: 8, fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   counter: { fontSize: 13, color: '#66707f' },
+  counterOn: { color: '#b8860b', fontWeight: '700' },
   spacer: { width: 52 },
   pickList: { flex: 1, marginTop: 12 },
   pickListContent: { paddingHorizontal: 16, paddingBottom: 30 },

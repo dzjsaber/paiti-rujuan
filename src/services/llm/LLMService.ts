@@ -10,6 +10,8 @@ import { classifyApiError, type ApiErrorInfo } from './errors';
 import { SseTextStream } from './sse';
 
 export const ZHIPU_CHAT_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+/** 与 providerDefs.DEEPSEEK_URL 同值（此处避免 LLMService 反向依赖 providerDefs） */
+export const DEEPSEEK_CHAT_URL = 'https://api.deepseek.com/chat/completions';
 export const VISION_MODEL = 'glm-4.6v-flash';
 // 免费视觉档限流兜底：glm-4.6v-flash 高峰实测持续 1305（访问量过大），
 // 识别失败时自动换 glm-4.5v 重试一次（同为免费档，2026-10-16 实测可输出含 bbox 的识别结果）
@@ -31,6 +33,8 @@ export interface LLMCallOptions {
   signal?: AbortSignal;
   /** 智谱联网搜索工具（仅智谱端点支持；其他提供商请勿开启） */
   webSearch?: boolean;
+  /** 图片输入格式：智谱用裸 base64（raw，默认）；DeepSeek 需 data URI */
+  imageFormat?: 'raw' | 'dataUri';
   /** 覆盖默认端点与密钥（多提供商支持；缺省用构造器注入的智谱配置） */
   endpoint?: { url: string; apiKey: string };
 }
@@ -50,6 +54,16 @@ export type ApiKeyProvider = () => Promise<string | null>;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * thinking 参数是否可传：智谱与 DeepSeek 均支持同名开关；
+ * 自定义端点不传；GLM-5.3 不支持关闭思考（传 disabled 会报错）。
+ */
+function thinkingParamAllowed(endpointUrl: string, model: string | undefined): boolean {
+  if (endpointUrl === DEEPSEEK_CHAT_URL) return true;
+  if (endpointUrl !== ZHIPU_CHAT_URL) return false;
+  return !String(model ?? '').startsWith('glm-5.3');
+}
+
 export class LLMService {
   constructor(
     private readonly getApiKey: ApiKeyProvider,
@@ -62,13 +76,17 @@ export class LLMService {
     prompt: string,
     opts: Partial<LLMCallOptions> = {},
   ): Promise<LLMCallResult> {
+    const imageUrl =
+      opts.imageFormat === 'dataUri' && !imageBase64.startsWith('data:')
+        ? `data:image/jpeg;base64,${imageBase64}`
+        : imageBase64;
     return this.call({
       model: opts.model ?? VISION_MODEL,
       messages: [
         {
           role: 'user',
           content: [
-            { type: 'image_url', image_url: { url: imageBase64 } },
+            { type: 'image_url', image_url: { url: imageUrl } },
             { type: 'text', text: prompt },
           ],
         },
@@ -79,6 +97,7 @@ export class LLMService {
       timeoutMs: opts.timeoutMs ?? 120000,
       maxRetries: opts.maxRetries,
       retryDelayMs: opts.retryDelayMs,
+      endpoint: opts.endpoint,
     });
   }
 
@@ -128,7 +147,7 @@ export class LLMService {
       temperature: opts.temperature ?? 0.3,
       max_tokens: opts.maxTokens ?? 1024,
       stream: true,
-      ...((opts.endpoint?.url ?? ZHIPU_CHAT_URL) === ZHIPU_CHAT_URL && opts.thinking
+      ...(opts.thinking && thinkingParamAllowed(opts.endpoint?.url ?? ZHIPU_CHAT_URL, opts.model)
         ? { thinking: { type: opts.thinking } }
         : {}),
       ...(opts.webSearch ? { tools: [{ type: 'web_search', web_search: { enable: true } }] } : {}),
@@ -233,15 +252,13 @@ export class LLMService {
     const maxRetries = opts.maxRetries ?? 1;
     const retryDelay = opts.retryDelayMs ?? 20000;
     const timeoutMs = opts.timeoutMs ?? 60000;
-    // thinking 是智谱专属参数：仅智谱端点附加（DeepSeek/自定义端点收到未知参数可能报错）
     const endpointUrl = opts.endpoint?.url ?? ZHIPU_CHAT_URL;
-    const isZhipu = endpointUrl === ZHIPU_CHAT_URL;
     const payload = {
       model: opts.model,
       messages: opts.messages,
       temperature: opts.temperature,
       max_tokens: opts.maxTokens,
-      ...(isZhipu && opts.thinking ? { thinking: { type: opts.thinking } } : {}),
+      ...(opts.thinking && thinkingParamAllowed(endpointUrl, opts.model) ? { thinking: { type: opts.thinking } } : {}),
       // 智谱联网搜索（服务端执行，模型自动决定是否搜索）
       ...(opts.webSearch ? { tools: [{ type: 'web_search', web_search: { enable: true } }] } : {}),
     };

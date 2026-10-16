@@ -30,14 +30,14 @@ type SectionKey = 'apikey' | 'model' | 'cut' | 'explain' | 'advanced' | 'data';
 const CUT_OPTIONS: { id: CutProviderId; label: string; tagline: string; detail: string }[] = [
   {
     id: 'zhipu_free',
-    label: '智谱（默认）',
-    tagline: 'glm-4.5-flash · 0 元',
+    label: 'GLM-4.5-Flash',
+    tagline: '智谱 · 免费（默认）',
     detail: '偶尔慢（服务端排队）。政治/历史类内容若提示"内容可能包含敏感信息，已被拒绝"，可换 DeepSeek 再试。',
   },
   {
     id: 'deepseek',
-    label: 'DeepSeek',
-    tagline: 'deepseek-chat · 按量计费',
+    label: 'DeepSeek-V4.1-Flash',
+    tagline: 'DeepSeek · 按量计费',
     detail: '实测更快（秒级）、内容审核更宽松；需先在"API Key"分组里配置 DeepSeek Key。',
   },
   {
@@ -57,7 +57,7 @@ export interface SettingsScreenProps {
 export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: SettingsScreenProps) {
   const [current, setCurrent] = useState<string | null>(null);
   const [input, setInput] = useState('');
-  const [tier, setTier] = useState<ModelTier>('free');
+  const [tier, setTier] = useState<ModelTier>('glm-4.6v-flash');
   const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
   const [cutProvider, setCutProvider] = useState<CutProviderId>('zhipu_free');
   const [dsKey, setDsKey] = useState<string | null>(null);
@@ -298,7 +298,6 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
               <Text style={styles.tierTag}>{info.tagline}</Text>
             </View>
             <Text style={styles.tierDetail}>{info.detail}</Text>
-            <Text style={styles.tierModel}>模型：{info.id}</Text>
           </Pressable>
         );
       })}

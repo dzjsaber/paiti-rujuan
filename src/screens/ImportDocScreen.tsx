@@ -16,7 +16,7 @@ import { getCutProvider } from '../services/modelPrefs';
 import { applyAnswerTable, parseAnswerTable, type MappableDraft } from '../services/documents/answerTable';
 import { chunkDocument } from '../services/documents/chunker';
 import { extractDocument, type ExtractResult } from '../services/documents/extractors';
-import type { LLMService } from '../services/llm/LLMService';
+import { DEEPSEEK_CHAT_URL, type LLMService } from '../services/llm/LLMService';
 import { getCustomConfig, getDeepseekKey, resolveExplainTarget } from '../services/llm/providers';
 import { parseModelText } from '../services/llm/ResponseParser';
 
@@ -136,6 +136,8 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           maxTokens: 8192,
           timeoutMs: 120000,
           signal: abort.signal,
+          // DeepSeek flash 默认思考会拖慢并吃输出预算，切题关思考；智谱保持默认（未实测关思考的切题质量）
+          thinking: cutTarget.url === DEEPSEEK_CHAT_URL ? 'disabled' : undefined,
         });
         if (!r.ok) {
           if (abort.signal.aborted) {

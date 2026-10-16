@@ -15,22 +15,22 @@ export interface ExplainProviderInfo {
 export const EXPLAIN_PROVIDERS: Record<ExplainProviderId, ExplainProviderInfo> = {
   zhipu_free: {
     id: 'zhipu_free',
-    label: '智谱 · 免费（默认）',
-    tagline: 'glm-4.5-flash · 0 元',
+    label: 'GLM-4.5-Flash',
+    tagline: '智谱 · 免费（默认）',
     detail: '应用内生成讲解，支持教材引用（自动标注依据编号）。',
     supportsRag: true,
   },
   zhipu_pro: {
     id: 'zhipu_pro',
-    label: '智谱 · 高级（付费）',
-    tagline: 'glm-5.3 · 按量计费',
+    label: 'GLM-5.3',
+    tagline: '智谱 · 按量计费',
     detail: '更强的讲解质量，支持教材引用；费用从智谱账户扣除。',
     supportsRag: true,
   },
   deepseek: {
     id: 'deepseek',
-    label: 'DeepSeek',
-    tagline: 'deepseek-chat · 按量计费',
+    label: 'DeepSeek-V4.1-Flash',
+    tagline: 'DeepSeek · 按量计费',
     detail: '使用 DeepSeek 官方接口（需在下方配置 DeepSeek Key），支持教材引用。',
     supportsRag: true,
   },
@@ -56,7 +56,8 @@ export const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
 // （首字 62~92 秒），glm-4.5-flash 首字 ~0.3 秒、整体 ~1.3 秒（2026-10-16 实测）
 export const ZHIPU_FREE_MODEL = 'glm-4.5-flash';
 export const ZHIPU_PRO_MODEL = 'glm-5.3';
-export const DEEPSEEK_MODEL = 'deepseek-chat';
+// 2026-10 起 DeepSeek 现役模型为 deepseek-flash（V4.1-Flash）；旧名会自动路由到它
+export const DEEPSEEK_MODEL = 'deepseek-flash';
 
 export interface CustomConfig {
   url: string;
