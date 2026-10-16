@@ -4,6 +4,8 @@ import {
   extractQuestionNo,
   parseAnswerDoc,
   parseAnswerTable,
+  parseLineAnswers,
+  parseModelAnswerJson,
   type MappableDraft,
 } from '../src/services/documents/answerTable';
 import { MATERIAL_BOUNDARY, chunkDocument } from '../src/services/documents/chunker';
@@ -205,6 +207,35 @@ check('parseAnswerDoc：单题式 / 区间连写式 / 少于 3 条视为无效',
   assert(m2.get('3') === 'B' && m2.get('9') === '×', '区间展开应对位');
   const m3 = parseAnswerDoc('只有 1. A 和 2. B 两条');
   assert(m3.size === 0, '少于 3 条应视为无效（防正文误认）');
+});
+
+check('parseLineAnswers：题型标注 + 答案 + 括号注释的逐行格式（用户样例）', () => {
+  const text = [
+    '1.（单选）B（哈福/哈佛结构）',
+    '2.（单选）C（12个振荡周期）',
+    '4.（单选）B',
+    '6.（判断）√',
+    '8.（判断）×（PC是16位）',
+    '9.（填空）工作寄存器组',
+    '10.（简答参考）：RST引脚高电平有效，可靠复位需要高电平至少维持2个机器周期。',
+    '11.（单选）RAM',
+  ].join('\n');
+  const m = parseLineAnswers(text);
+  assert(m.size === 8, `应解析 8 条，实际 ${m.size}`);
+  assert(m.get('1') === 'B', '选项字母 + 注释 → B');
+  assert(m.get('6') === '√' && m.get('8') === '×', '判断题符号');
+  assert(m.get('9') === '工作寄存器组', '填空文本');
+  assert((m.get('10') ?? '').startsWith('RST引脚'), '简答文本');
+  assert(m.get('11') === 'RAM', '多字母文本不应误判为选项');
+});
+
+check('parseModelAnswerJson：规范化 JSON（围栏/噪声/异常项）', () => {
+  const m1 = parseModelAnswerJson('[{"no":"1","answer":"B"},{"no":"6","answer":"√"}]');
+  assert(m1.size === 2 && m1.get('1') === 'B', '基础解析');
+  const m2 = parseModelAnswerJson('```json\n[{"no": 2, "answer": " 对 "}]\n```');
+  assert(m2.get('2') === '对', '围栏与空白/数字题号');
+  const m3 = parseModelAnswerJson('这里是答案：[{"no":"3","answer":""}]');
+  assert(m3.size === 0, '空答案忽略');
 });
 
 const total = passed + fails.length;

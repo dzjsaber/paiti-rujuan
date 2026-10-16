@@ -126,7 +126,7 @@ export default function App() {
           onOpenBatch={(batchId) => setScreen({ name: 'review', mode: 'resume', batchId })}
         />
       )}
-      {screen.name === 'bank' && <BankScreen db={db} onBack={goHome} />}
+      {screen.name === 'bank' && <BankScreen db={db} llm={llm} onBack={goHome} />}
       {screen.name === 'importdoc' && (
         <ImportDocScreen
           db={db}

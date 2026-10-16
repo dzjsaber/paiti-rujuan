@@ -77,6 +77,70 @@ export function parseAnswerDoc(text: string): Map<string, string> {
   return map.size >= 3 ? map : new Map();
 }
 
+/**
+ * 逐行答案解析（支持"题号 + 题型标注 + 答案 + 括号注释"的手动整理格式，如：
+ *   "1.（单选）B（哈福/哈佛结构）" → 1=B；"8.（判断）×（PC是16位）" → 8=×；
+ *   "9.（填空）工作寄存器组" → 9=工作寄存器组；"10.（简答参考）：RST引脚…" → 10=RST引脚…
+ * 规则：剥掉行首的题型/注释括号；剩余若以单个选项字母或对错符号开头，答案为该符号；
+ * 否则整段作为文本答案（填空/简答）。至少 3 条才视为有效。
+ */
+export function parseLineAnswers(text: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const rawLine of text.replace(/\r\n/g, '\n').split('\n')) {
+    const line = rawLine.trim();
+    const m = /^(\d{1,3})\s*[.、．:：)）]\s*(.+)$/.exec(line);
+    if (!m) continue;
+    const no = m[1];
+    let rest = m[2].trim();
+    // 剥题型标注（括号内最多 12 字且含题型关键字，如"（单选）""（简答参考）"）
+    rest = rest.replace(
+      /^[（(]\s*(?=[^）)]{0,12}[）)])(?=[^）)]*(?:单选|多选|判断|填空|简答|解答|参考|答案))[^）)]{0,12}[）)]\s*[:：]?\s*/,
+      '',
+    );
+    // 再剥一层任意短括号（注释型前缀）
+    rest = rest.replace(/^[（(][^）)]{0,12}[）)]\s*[:：]?\s*/, '');
+    if (!rest) continue;
+    const head = /^([A-Ha-h])(?![A-Za-z])/.exec(rest) ?? /^(√|×|正确|错误|对|错)(?![^\s（(])/.exec(rest);
+    if (head) {
+      map.set(no, head[1].toUpperCase());
+      continue;
+    }
+    const ansM = /^(?:答案|参考答案)\s*[:：]?\s*(.+)$/.exec(rest);
+    if (ansM) rest = ansM[1].trim();
+    if (!rest) continue;
+    map.set(no, rest);
+  }
+  return map.size >= 3 ? map : new Map();
+}
+
+/** 解析模型输出的规范化答案 JSON（[{"no":"1","answer":"B"}]，容忍围栏与前后噪声） */
+export function parseModelAnswerJson(text: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const body = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+  let arr: unknown;
+  try {
+    arr = JSON.parse(body);
+  } catch {
+    const s = body.indexOf('[');
+    const e = body.lastIndexOf(']');
+    if (s < 0 || e <= s) return map;
+    try {
+      arr = JSON.parse(body.slice(s, e + 1));
+    } catch {
+      return map;
+    }
+  }
+  if (!Array.isArray(arr)) return map;
+  for (const item of arr) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const no = String(o.no ?? '').trim();
+    const answer = String(o.answer ?? '').trim();
+    if (/^\d{1,3}$/.test(no) && answer) map.set(no, answer);
+  }
+  return map;
+}
+
 function convertAnswer(raw: string, type: string): unknown {
   const t = raw.trim();
   if (type === 'judge') {

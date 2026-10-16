@@ -20,11 +20,24 @@ import {
   updateQuestionContent,
   type QuestionRow,
 } from '../db/repo_questions';
-import { extractQuestionNo, parseAnswerDoc, parseAnswerTable } from '../services/documents/answerTable';
+import {
+  extractQuestionNo,
+  parseAnswerDoc,
+  parseAnswerTable,
+  parseLineAnswers,
+  parseModelAnswerJson,
+} from '../services/documents/answerTable';
 import { extractDocument } from '../services/documents/extractors';
+import { ANSWER_DOC_PROMPT } from '../prompts/answerDoc';
+import { getApiKey } from '../services/apiKey';
+import { getCutProvider } from '../services/modelPrefs';
+import type { LLMService } from '../services/llm/LLMService';
+import { getCustomConfig, getDeepseekKey, resolveExplainTarget } from '../services/llm/providers';
 
 export interface BankScreenProps {
   db: SQLiteDatabase;
+  /** 答案文档的 AI 规范化兜底要走"文档切题"设置里的提供商 */
+  llm: LLMService;
   onBack: () => void;
 }
 
@@ -48,7 +61,7 @@ function typeShort(t: string): string {
   return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '填空';
 }
 
-export function BankScreen({ db, onBack }: BankScreenProps) {
+export function BankScreen({ db, llm, onBack }: BankScreenProps) {
   const [banks, setBanks] = useState<BankSummary[]>([]);
   const [selected, setSelected] = useState<BankSummary | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -181,10 +194,29 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
       const r = await extractDocument(a.uri, a.name);
       let table = parseAnswerTable(r.text);
       if (table.size === 0) table = parseAnswerDoc(r.text);
+      if (table.size === 0) table = parseLineAnswers(r.text);
+      if (table.size === 0) {
+        // AI 兜底：按"文档切题"设置的提供商，把答案文档规范化为"题号→答案"JSON
+        const target = resolveExplainTarget(await getCutProvider(), {
+          zhipuApiKey: await getApiKey(),
+          deepseekApiKey: await getDeepseekKey(),
+          custom: await getCustomConfig(),
+        });
+        if (target.kind === 'api') {
+          const rr = await llm.complete(`${ANSWER_DOC_PROMPT}\n\n--- 答案文档 ---\n${r.text.slice(0, 8000)}`, {
+            model: target.model,
+            endpoint: { url: target.url, apiKey: target.apiKey },
+            temperature: 0.1,
+            maxTokens: 4096,
+            timeoutMs: 120000,
+          });
+          if (rr.ok && rr.content) table = parseModelAnswerJson(rr.content);
+        }
+      }
       if (table.size === 0) {
         Alert.alert(
           '没识别到答案',
-          '这份文档里没有解析出"题号→答案"的对应关系。\n\n支持：文末答案表（如"1.A 2.B 3.C"）、整份答案文档、区间连写（如"1-5 DCBAB"）。扫描版（图片型）文件请先转成文字版。',
+          '这份文档里没有解析出"题号→答案"的对应关系（已尝试本地解析与 AI 整理）。\n\n支持：文末答案表（如"1.A 2.B 3.C"）、整份答案文档、区间连写（如"1-5 DCBAB"）、逐行式（如"1.（单选）B（注释）"）。扫描版（图片型）文件请先转成文字版。',
         );
         return;
       }
@@ -277,7 +309,7 @@ export function BankScreen({ db, onBack }: BankScreenProps) {
     } finally {
       setAnswerBusy(false);
     }
-  }, [db, selected, refresh, answerBusy]);
+  }, [db, llm, selected, refresh, answerBusy]);
 
   const openEdit = useCallback((row: QuestionRow) => {
     const d = rowToQuestion(row);
