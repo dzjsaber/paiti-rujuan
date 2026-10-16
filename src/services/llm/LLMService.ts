@@ -281,7 +281,8 @@ export class LLMService {
           lastError = classifyApiError(bizCode, resp.status, message);
           lastStatus = resp.status;
           if (lastError.retryable && attempt < maxRetries) {
-            await sleep(retryDelay);
+            // 指数退避 + 随机抖动（需求 §F1：有上限的退避，避免无间隔连续重试）
+            await sleep(Math.min(retryDelay * Math.pow(2, attempt), 60000) * (1 + Math.random() * 0.3));
             continue;
           }
           return { ok: false, content: null, error: lastError, httpStatus: lastStatus, latencyMs: lastLatency, attempts, usage: null };
@@ -315,7 +316,7 @@ export class LLMService {
           : classifyApiError(null, null);
         lastStatus = null;
         if (lastError.retryable && attempt < maxRetries) {
-          await sleep(retryDelay);
+          await sleep(Math.min(retryDelay * Math.pow(2, attempt), 60000) * (1 + Math.random() * 0.3));
           continue;
         }
       }

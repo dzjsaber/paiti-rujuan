@@ -4,7 +4,7 @@
  * → 草稿持久化 → 人工确认/编辑 → 单题独立事务入库（题干查重防重复入库）。
  * 支持从持久化草稿恢复（应用被杀后重启不丢进度、不重复入库）。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,10 +16,13 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { BankMaterialPicker } from '../components/BankMaterialPicker';
 import { CropModal } from '../components/CropModal';
+import { usePinchZoom } from '../components/usePinchZoom';
 import { toCropRect } from '../core/figureBox';
 import type { QuestionAnswer, QuestionDraft, ReviewStatus } from '../core/models';
 import { toQuestionType } from '../core/models';
@@ -132,6 +135,23 @@ export function ReviewScreen({
   const [showMaterialPicker, setShowMaterialPicker] = useState(false);
   const [boundCount, setBoundCount] = useState(0);
   const [boundTick, setBoundTick] = useState(0);
+
+  // 查看原图（F3）：来源整页图支持缩放、平移
+  const { width: winW, height: winH } = useWindowDimensions();
+  const imgPz = usePinchZoom(winW, winH * 0.85);
+  const imgGesture = useMemo(() => {
+    const pinch = Gesture.Pinch()
+      .runOnJS(true)
+      .onBegin(() => imgPz.begin())
+      .onUpdate((e) => imgPz.updatePinch(e.scale, e.focalX, e.focalY));
+    const pan = Gesture.Pan()
+      .maxPointers(1)
+      .runOnJS(true)
+      .onBegin(() => imgPz.begin())
+      .onUpdate((e) => imgPz.updatePan(e.translationX, e.translationY));
+    return Gesture.Simultaneous(pinch, pan);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgPz.begin, imgPz.updatePinch, imgPz.updatePan]);
 
   const itemsRef = useRef<ReviewItem[]>([]);
   const batchRef = useRef<string | null>(null);
@@ -920,8 +940,31 @@ export function ReviewScreen({
 
       <Modal visible={showImage} transparent onRequestClose={() => setShowImage(false)}>
         <View style={styles.modalBg}>
-          <Image source={{ uri: imageUri }} style={styles.modalImage} resizeMode="contain" />
-          <Pressable style={styles.modalClose} onPress={() => setShowImage(false)}>
+          <GestureDetector gesture={imgGesture}>
+            <View style={{ width: winW, height: winH * 0.85, overflow: 'hidden' }}>
+              <View
+                style={{
+                  width: winW,
+                  height: winH * 0.85,
+                  transform: [
+                    { translateX: imgPz.zoom.tx },
+                    { translateY: imgPz.zoom.ty },
+                    { scale: imgPz.zoom.scale },
+                  ],
+                }}
+              >
+                <Image source={{ uri: imageUri }} style={{ width: winW, height: winH * 0.85 }} resizeMode="contain" />
+              </View>
+            </View>
+          </GestureDetector>
+          <Text style={styles.modalHint}>双指缩放查看；单指拖动</Text>
+          <Pressable
+            style={styles.modalClose}
+            onPress={() => {
+              setShowImage(false);
+              imgPz.reset();
+            }}
+          >
             <Text style={styles.modalCloseText}>关闭</Text>
           </Pressable>
         </View>
@@ -1060,6 +1103,7 @@ const styles = StyleSheet.create({
   ghostBtnText: { color: '#31518a', fontSize: 14 },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' },
   modalImage: { width: '100%', height: '85%' },
+  modalHint: { marginTop: 10, color: '#98a2b3', fontSize: 12 },
   modalClose: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 32, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)' },
   modalCloseText: { color: '#fff', fontSize: 15 },
   bankPickRow: {
