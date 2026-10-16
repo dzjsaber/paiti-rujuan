@@ -28,6 +28,12 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-sharing"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7a3f177c-4387-4810-977a-59fd45e67007"
+      }
+    },
+    "owner": "sdaber"
   }
 }
