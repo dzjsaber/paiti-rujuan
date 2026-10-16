@@ -1,0 +1,19 @@
+Starting project at D:\86177\Documents\paiti-rujuan
+Starting Metro Bundler
+
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8081
+
+An update for expo is available: 57.0.29 → ~57.0.30
+0 other packages may need updating. Run npx expo install --check for details.
+Logs for your project will appear below.
+Android Bundled 37636ms index.ts (948 modules)
+Android Bundled 26570ms index.ts (916 modules)
+Android Bundled 53ms index.ts (1 module)
+Android Bundled 1410ms index.ts (1 module)
+Android Bundled 1875ms index.ts (1 module)
+Android Bundled 179ms index.ts (1 module)
+Android Bundled 2002ms index.ts (1 module)
+Android Bundled 55ms index.ts (1 module)
+Android Bundled 6636ms index.ts (1 module)
+Android Bundled 1217ms index.ts (1 module)

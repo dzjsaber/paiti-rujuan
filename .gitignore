@@ -42,5 +42,6 @@ yarn-error.*
 
 # Verification artifacts (local only)
 dist-m1[a-d]*/
-m1a-*.log
-m1a-audit*.json
+# 根目录的 M1 残留已归档到 docs/artifacts/，这里的规则只作用于根目录
+/m1a-*.log
+/m1a-audit*.json
