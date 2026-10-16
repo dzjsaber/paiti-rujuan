@@ -11,6 +11,9 @@ import { SseTextStream } from './sse';
 
 export const ZHIPU_CHAT_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 export const VISION_MODEL = 'glm-4.6v-flash';
+// 免费视觉档限流兜底：glm-4.6v-flash 高峰实测持续 1305（访问量过大），
+// 识别失败时自动换 glm-4.5v 重试一次（同为免费档，2026-10-16 实测可输出含 bbox 的识别结果）
+export const VISION_FALLBACK_MODEL = 'glm-4.5v';
 // 文本任务（文档切题）用 glm-4.5-flash：免费、实测 6 秒完成 3 题切题（JSON 可解析），
 // glm-4.7-flash 免费档实测排队 60 秒+（2026-10-16 实测）
 export const TEXT_MODEL = 'glm-4.5-flash';

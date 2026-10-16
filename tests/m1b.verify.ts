@@ -10,6 +10,7 @@ import { normalizeAnswer } from '../src/core/validation/normalize';
 import { classifyApiError } from '../src/services/llm/errors';
 import { stemHash } from '../src/core/dedupe';
 import { isTextAnswerCorrect } from '../src/core/answerCheck';
+import { toCropRect } from '../src/core/figureBox';
 
 let passed = 0;
 const failures: string[] = [];
@@ -359,6 +360,20 @@ check('isTextAnswerCorrect：全角/大小写/标点/空白容错', () => {
   assert.equal(isTextAnswerCorrect(' 8 0 5 1 ', '8051'), true, '空白忽略');
   assert.equal(isTextAnswerCorrect('8052', '8051'), false, '不同答案判错');
   assert.equal(isTextAnswerCorrect('', '8051'), false, '空作答不算对');
+});
+
+// ---------------------------------------------------------------- 配图坐标（figureBox）
+
+check('toCropRect：比例/像素/0-1000 归一化坐标与边界处理', () => {
+  const r1 = toCropRect([0.1, 0.2, 0.5, 0.6], 1000, 500);
+  assert(r1 && r1.originX === 100 && r1.originY === 100 && r1.width === 400 && r1.height === 200, '比例坐标应换算为像素');
+  const r2 = toCropRect([38, 265, 358, 345], 1093, 697);
+  assert(r2 && r2.originX === 38 && r2.width === 320, '像素坐标应原样使用');
+  const r3 = toCropRect([600, 300, 900, 600], 800, 400);
+  assert(r3 !== null && r3.originX < 800 && r3.originX + r3.width <= 800, '超界坐标应按 0-1000 归一化并 clamp');
+  assert(toCropRect([5, 5, 20, 20], 800, 400) === null, '过小区域应放弃');
+  assert(toCropRect([100, 100, 50, 50], 800, 400) === null, '反向框应放弃');
+  assert(toCropRect('nope', 800, 400) === null, '非数组应放弃');
 });
 
 // ---------------------------------------------------------------- 汇总

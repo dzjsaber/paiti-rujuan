@@ -20,6 +20,7 @@ import {
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { BankMaterialPicker } from '../components/BankMaterialPicker';
 import { CropModal } from '../components/CropModal';
+import { toCropRect } from '../core/figureBox';
 import type { QuestionAnswer, QuestionDraft, ReviewStatus } from '../core/models';
 import { toQuestionType } from '../core/models';
 import { normalizeStem } from '../core/dedupe';
@@ -46,6 +47,7 @@ import { cropImage, makeHalves, prepareImageForRecognition, type CropRect, type 
 import type { LLMService } from '../services/llm/LLMService';
 import { getModelTier, modelIdForTier } from '../services/modelPrefs';
 import { parseModelText } from '../services/llm/ResponseParser';
+import { VISION_FALLBACK_MODEL } from '../services/llm/LLMService';
 import { ZhipuVisionEngine } from '../services/recognition/zhipuVision';
 
 type Phase = 'recognizing' | 'reviewing' | 'inserting' | 'done' | 'error';
@@ -168,7 +170,12 @@ export function ReviewScreen({
 
   const recognizeOnce = useCallback(
     async (engine: ZhipuVisionEngine, b64: string): Promise<RecognizeOutcome> => {
-      const out = await engine.recognize({ imageBase64: b64, prompt: RECOGNITION_PROMPT });
+      let out = await engine.recognize({ imageBase64: b64, prompt: RECOGNITION_PROMPT });
+      // 免费档限流（1305）：换备用视觉模型重试一次，避免高峰时段识别不可用
+      if (!out.ok && out.error?.code === '1305') {
+        const alt = new ZhipuVisionEngine(llm, VISION_FALLBACK_MODEL);
+        out = await alt.recognize({ imageBase64: b64, prompt: RECOGNITION_PROMPT });
+      }
       if (!out.ok || !out.raw) {
         return { ok: false, message: out.error?.userMessage ?? '识别请求失败', code: out.error?.code ?? null };
       }
@@ -178,11 +185,17 @@ export function ReviewScreen({
       }
       return { ok: true, drafts: parsed.drafts, mode: parsed.mode, latencyMs: out.latencyMs, attempts: out.attempts };
     },
-    [],
+    [llm],
   );
 
   const applyDrafts = useCallback(
-    async (drafts: unknown[], progressLabel: string, merge = false) => {
+    async (
+      drafts: unknown[],
+      progressLabel: string,
+      merge = false,
+      /** 自动配图的坐标基准图：仅整页识别传入（切半/框选的 bbox 相对局部图，直接裁会错位） */
+      figureBase: PreparedImage | null = null,
+    ) => {
       // 补识别场景（merge）：过滤掉与当前列表题干重复的新草稿，只追加新题
       let incoming = drafts;
       if (merge) {
@@ -222,6 +235,28 @@ export function ReviewScreen({
           review_status: r.status,
         } as QuestionDraft;
       });
+
+      // AI 自动配图：按模型给的 figures bbox 从原图裁出配图（题干图优先，其次选项区域图）。
+      // 坐标可能不准：确认页的配图卡片保留"重截/移除"，用户可修正。
+      const prep = figureBase;
+      if (prep) {
+        for (let i = 0; i < incoming.length; i++) {
+          const base = (incoming[i] && typeof incoming[i] === 'object' && !Array.isArray(incoming[i])
+            ? incoming[i]
+            : {}) as Record<string, unknown>;
+          const figures = Array.isArray(base.figures) ? (base.figures as Record<string, unknown>[]) : [];
+          const fig = figures.find((f) => f && f.target === 'stem') ?? figures[0];
+          const rect = toCropRect(fig?.bbox, prep.width, prep.height);
+          if (!rect) continue;
+          try {
+            const cropped = await cropImage(prep.uri, rect);
+            questionDrafts[i].question_image_path = cropped.uri;
+          } catch {
+            /* 单题配图失败不阻塞 */
+          }
+        }
+      }
+
       if (!merge && pageRef.current) {
         await deleteDraftItemsByPage(db, pageRef.current);
       }
@@ -273,7 +308,11 @@ export function ReviewScreen({
         const tier = await getModelTier();
         const engine = new ZhipuVisionEngine(llm, modelIdForTier(tier));
 
-        const finish = async (outcome: RecognizeOutcome, label: string) => {
+        const finish = async (
+          outcome: RecognizeOutcome,
+          label: string,
+          figureBase: PreparedImage | null = null,
+        ) => {
           if (!outcome.ok) {
             if (pageRef.current) {
               await updatePageStatus(db, pageRef.current, 'failed', outcome.code ?? 'unknown');
@@ -290,7 +329,7 @@ export function ReviewScreen({
             setPhase('error');
             return;
           }
-          await applyDrafts(outcome.drafts, label, opts?.merge);
+          await applyDrafts(outcome.drafts, label, opts?.merge, figureBase);
         };
 
         // 模式 1：用户手动框选 → 只识别选区
@@ -313,7 +352,11 @@ export function ReviewScreen({
           setProgressText('正在识别（大模型推理中，约 10-60 秒）…');
           const whole = await recognizeOnce(engine, prep.base64);
           if (whole.ok && whole.drafts.length > 0) {
-            await finish(whole, `整页识别 · 耗时 ${(whole.latencyMs / 1000).toFixed(1)}s · 解析 ${whole.mode}`);
+            await finish(
+              whole,
+              `整页识别 · 耗时 ${(whole.latencyMs / 1000).toFixed(1)}s · 解析 ${whole.mode}`,
+              prep,
+            );
             return;
           }
           firstIssue = whole.ok ? '整页未提取到题目' : whole.message;
@@ -767,7 +810,9 @@ export function ReviewScreen({
               </Pressable>
             </View>
             <View style={styles.figureRow}>
-              <Text style={styles.answerLabel}>配图</Text>
+              <Text style={styles.answerLabel}>
+                配图{it.draft.question_image_path ? '（可重截/移除）' : ''}
+              </Text>
               {it.draft.question_image_path ? (
                 <>
                   <Pressable onPress={() => setShowFigureUri(it.draft.question_image_path ?? null)}>
