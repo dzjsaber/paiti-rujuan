@@ -15,16 +15,21 @@ if (!imgPath) {
   console.log('用法: npx tsx tests/debug-recognize.ts <图片> [模型] [thinking]');
   process.exit(1);
 }
-const key = process.env.ZHIPU_API_KEY || '';
+// 模型名以 deepseek 开头时走 DeepSeek 端点（deepseek-flash 支持图像理解）
+const isDeepseek = model.startsWith('deepseek');
+const url = isDeepseek
+  ? 'https://api.deepseek.com/chat/completions'
+  : 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+const key = (isDeepseek ? process.env.DEEPSEEK_API_KEY : process.env.ZHIPU_API_KEY) || '';
 if (!key) {
-  console.log('缺少 ZHIPU_API_KEY');
+  console.log(isDeepseek ? '缺少 DEEPSEEK_API_KEY' : '缺少 ZHIPU_API_KEY');
   process.exit(1);
 }
 
 async function main(): Promise<void> {
   const b64 = fs.readFileSync(imgPath).toString('base64');
   const t0 = Date.now();
-  const r = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+  const r = await fetch(url, {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -40,7 +45,8 @@ async function main(): Promise<void> {
       ],
       temperature: 0.1,
       max_tokens: 8192,
-      thinking: { type: thinking },
+      // thinking 是智谱专属参数，DeepSeek 不传
+      ...(isDeepseek ? {} : { thinking: { type: thinking } }),
     }),
   });
   const raw = await r.text();
