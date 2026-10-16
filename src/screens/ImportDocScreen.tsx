@@ -8,6 +8,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { buildDraftsWithF2 } from '../core/draftBuild';
 import type { ImportSourceType } from '../core/models';
+import { checkQuestionNumbers } from '../core/questionNumbers';
 import { createBatch, createPage, saveDraftItems, updatePageStatus } from '../db/repo_imports';
 import { STRUCTURING_PROMPT } from '../prompts/structuring';
 import { getApiKey } from '../services/apiKey';
@@ -186,8 +187,22 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
           ).slice(0, 600),
         );
       }
+      // 导入摘要：答案表映射 + 漏题检查（模型没保留题号时不提示，避免误报）
+      const notes: string[] = [];
       if (table.size > 0) {
-        Alert.alert('答案表映射完成', `从文末答案表映射到 ${mapResult.mapped} 道题的答案${mapResult.conflicts > 0 ? `，${mapResult.conflicts} 处冲突需人工确认` : ''}。`);
+        notes.push(
+          `答案表映射到 ${mapResult.mapped} 道题${mapResult.conflicts > 0 ? `，${mapResult.conflicts} 处冲突需人工确认` : ''}。`,
+        );
+      }
+      const numCheck = checkQuestionNumbers(text, allDrafts);
+      if (numCheck.expected.length >= 3 && numCheck.found.length >= 1 && numCheck.missing.length > 0) {
+        const missText = numCheck.missing.slice(0, 10).join('、') + (numCheck.missing.length > 10 ? ' 等' : '');
+        notes.push(
+          `可能缺少第 ${missText} 题（原文题号共 ${numCheck.expected.length} 个，已提取 ${numCheck.found.length} 个），请到确认页核对。`,
+        );
+      }
+      if (notes.length > 0) {
+        Alert.alert('导入完成', notes.join('\n\n'));
       }
       onOpenReview(batchId);
     } catch (e) {

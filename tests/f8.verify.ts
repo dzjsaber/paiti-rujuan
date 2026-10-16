@@ -1,6 +1,7 @@
 /** F8 纯逻辑验证：文档分块 + 答案表解析/映射。运行：npx tsx tests/f8.verify.ts */
 import { applyAnswerTable, extractQuestionNo, parseAnswerTable, type MappableDraft } from '../src/services/documents/answerTable';
 import { MATERIAL_BOUNDARY, chunkDocument } from '../src/services/documents/chunker';
+import { checkQuestionNumbers, extractQuestionNumbers } from '../src/core/questionNumbers';
 import { pptxBytesToText } from '../src/services/documents/pptx';
 import { pptBytesToText } from '../src/services/documents/ppt';
 import { strToU8, zipSync } from 'fflate';
@@ -169,6 +170,24 @@ check('applyAnswerTable：已有答案不覆盖', () => {
   const r = applyAnswerTable(drafts, new Map([['1', 'A']]));
   assert(r.mapped === 0, '不覆盖已有答案');
   assert(drafts[0].answer === 'C', '保留原值');
+});
+
+// ---------------------------------------------------------------- 漏题检查
+
+check('extractQuestionNumbers：行首题号提取、去重、忽略行中题号', () => {
+  const text = '1. 第一题\n\n2、第二题\n 3) 第三题\n这是正文中的 4. 不是题号\n2. 重复题号\n\n(5) 小题不算';
+  const nums = extractQuestionNumbers(text);
+  assert(nums.length === 3 && nums[0] === 1 && nums[1] === 2 && nums[2] === 3, `应提取 1/2/3，实际 ${nums.join(',')}`);
+});
+
+check('checkQuestionNumbers：识别缺失题号；模型无题号时 found 为空', () => {
+  const text = ['1. 一', '2. 二', '3. 三', '4. 四', '5. 五'].join('\n\n');
+  const drafts = [{ stem: '1. 一' }, { stem: '2. 二' }, { stem: '4. 四' }, { stem: '5. 五' }];
+  const r = checkQuestionNumbers(text, drafts);
+  assert(r.expected.length === 5 && r.found.length === 4, '数量应正确');
+  assert(r.missing.length === 1 && r.missing[0] === 3, `应缺第 3 题，实际 ${r.missing.join(',')}`);
+  const r2 = checkQuestionNumbers(text, [{ stem: '没有题号的题干' }, { stem: '另一题' }]);
+  assert(r2.found.length === 0 && r2.missing.length === 5, '模型未保留题号时 found 为空（调用方据此不提示）');
 });
 
 const total = passed + fails.length;
