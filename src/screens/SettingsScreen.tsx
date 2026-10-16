@@ -3,11 +3,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { clearApiKey, getApiKey, maskKey, saveApiKey } from '../services/apiKey';
 import {
+  getCutProvider,
   getExplainProvider,
   getModelTier,
   MODEL_TIERS,
+  saveCutProvider,
   saveExplainProvider,
   saveModelTier,
+  type CutProviderId,
   type ModelTier,
 } from '../services/modelPrefs';
 import {
@@ -20,7 +23,29 @@ import {
   type ExplainProviderId,
 } from '../services/llm/providers';
 
-type SectionKey = 'apikey' | 'model' | 'explain' | 'advanced' | 'data';
+type SectionKey = 'apikey' | 'model' | 'cut' | 'explain' | 'advanced' | 'data';
+
+/** 文档切题接口选项（智谱内容审核较严时换 DeepSeek；实测 DeepSeek 快且宽松） */
+const CUT_OPTIONS: { id: CutProviderId; label: string; tagline: string; detail: string }[] = [
+  {
+    id: 'zhipu_free',
+    label: '智谱（默认）',
+    tagline: 'glm-4.5-flash · 0 元',
+    detail: '偶尔慢（服务端排队）。政治/历史类内容若提示"内容可能包含敏感信息，已被拒绝"，可换 DeepSeek 再试。',
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    tagline: 'deepseek-chat · 按量计费',
+    detail: '实测更快（秒级）、内容审核更宽松；需先在"API Key"分组里配置 DeepSeek Key。',
+  },
+  {
+    id: 'custom',
+    label: '自定义（OpenAI 兼容）',
+    tagline: '使用"附加配置"里的接口',
+    detail: '把文档切题请求发送到你配置的自定义接口。',
+  },
+];
 
 export interface SettingsScreenProps {
   onBack: () => void;
@@ -33,6 +58,7 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
   const [input, setInput] = useState('');
   const [tier, setTier] = useState<ModelTier>('free');
   const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
+  const [cutProvider, setCutProvider] = useState<CutProviderId>('zhipu_free');
   const [dsKey, setDsKey] = useState<string | null>(null);
   const [dsInput, setDsInput] = useState('');
   const [custom, setCustom] = useState<CustomConfig>({ url: '', model: '', apiKey: '' });
@@ -43,6 +69,7 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
     setCurrent(await getApiKey());
     setTier(await getModelTier());
     setExplainProvider(await getExplainProvider());
+    setCutProvider(await getCutProvider());
     setDsKey(await getDeepseekKey());
     const c = await getCustomConfig();
     setCustom(c);
@@ -57,6 +84,11 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
   const chooseExplain = useCallback(async (m: ExplainProviderId) => {
     setExplainProvider(m);
     await saveExplainProvider(m);
+  }, []);
+
+  const chooseCut = useCallback(async (m: CutProviderId) => {
+    setCutProvider(m);
+    await saveCutProvider(m);
   }, []);
 
   const saveDs = useCallback(async () => {
@@ -102,6 +134,7 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
       summary: `智谱${current ? '已配置' : '未配置'} · DeepSeek ${dsKey ? '已配置' : '未配置'}`,
     },
     { key: 'model', title: '识别模型', summary: MODEL_TIERS[tier].label },
+    { key: 'cut', title: '文档切题', summary: CUT_OPTIONS.find((o) => o.id === cutProvider)?.label ?? '智谱' },
     { key: 'explain', title: '讲解方式', summary: EXPLAIN_PROVIDERS[explainProvider].label },
     { key: 'advanced', title: '附加配置', summary: custom.url ? '自定义接口已配置' : '自定义接口未配置' },
     { key: 'data', title: '数据', summary: '备份与恢复 · 技术自检' },
@@ -235,6 +268,30 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
         );
       })}
       <Text style={styles.hint}>高级档按量计费（从智谱账户扣费），使用前请确认余额。</Text>
+
+            </>
+          )}
+
+          {section === 'cut' && (
+            <>
+      <Text style={styles.section}>文档切题接口</Text>
+      <Text style={styles.hint}>文档导入时的"云端结构化切题"使用哪个接口（识别图片不受此设置影响）。</Text>
+      {CUT_OPTIONS.map((o) => {
+        const active = cutProvider === o.id;
+        return (
+          <Pressable
+            key={o.id}
+            style={[styles.tierCard, active && styles.tierCardActive]}
+            onPress={() => void chooseCut(o.id)}
+          >
+            <View style={styles.tierHeader}>
+              <Text style={[styles.tierLabel, active && styles.tierLabelActive]}>{o.label}</Text>
+              <Text style={styles.tierTag}>{o.tagline}</Text>
+            </View>
+            <Text style={styles.tierDetail}>{o.detail}</Text>
+          </Pressable>
+        );
+      })}
 
             </>
           )}

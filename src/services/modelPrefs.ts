@@ -75,3 +75,24 @@ export async function getExplainProvider(): Promise<ExplainProviderId> {
 export async function saveExplainProvider(id: ExplainProviderId): Promise<void> {
   await SecureStore.setItemAsync(EXPLAIN_KEY, id);
 }
+
+// ---------------------------------------------------------------- 文档切题接口（F8）
+
+/** 文档切题可换提供商：智谱内容审核较严（政治/历史类可能 1301 被拒），DeepSeek 实测更快更宽松 */
+export type CutProviderId = 'zhipu_free' | 'deepseek' | 'custom';
+
+const CUT_KEY = 'doc_cut_provider';
+
+export async function getCutProvider(): Promise<CutProviderId> {
+  try {
+    const v = await SecureStore.getItemAsync(CUT_KEY);
+    if (v === 'deepseek' || v === 'custom') return v;
+    return 'zhipu_free';
+  } catch {
+    return 'zhipu_free';
+  }
+}
+
+export async function saveCutProvider(id: CutProviderId): Promise<void> {
+  await SecureStore.setItemAsync(CUT_KEY, id);
+}

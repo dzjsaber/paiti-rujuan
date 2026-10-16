@@ -10,11 +10,13 @@ import { buildDraftsWithF2 } from '../core/draftBuild';
 import type { ImportSourceType } from '../core/models';
 import { createBatch, createPage, saveDraftItems, updatePageStatus } from '../db/repo_imports';
 import { STRUCTURING_PROMPT } from '../prompts/structuring';
+import { getApiKey } from '../services/apiKey';
+import { getCutProvider } from '../services/modelPrefs';
 import { applyAnswerTable, parseAnswerTable, type MappableDraft } from '../services/documents/answerTable';
 import { chunkDocument } from '../services/documents/chunker';
 import { extractDocument, type ExtractResult } from '../services/documents/extractors';
 import type { LLMService } from '../services/llm/LLMService';
-import { TEXT_MODEL } from '../services/llm/LLMService';
+import { getCustomConfig, getDeepseekKey, resolveExplainTarget } from '../services/llm/providers';
 import { parseModelText } from '../services/llm/ResponseParser';
 
 type Stage = 'pick' | 'extracting' | 'preview' | 'structuring' | 'error';
@@ -105,6 +107,20 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
       if (chunks.length === 0) throw new Error('文档中没有可处理的文本');
       const allDrafts: unknown[] = [];
       const failures: string[] = [];
+      let sensitiveBlocked = false;
+      // 切题提供商（设置 → 文档切题 可换：智谱内容审核较严，DeepSeek 实测更快、更宽松）
+      const cutTarget = resolveExplainTarget(await getCutProvider(), {
+        zhipuApiKey: await getApiKey(),
+        deepseekApiKey: await getDeepseekKey(),
+        custom: await getCustomConfig(),
+      });
+      if (cutTarget.kind !== 'api') {
+        throw new Error(
+          cutTarget.kind === 'missing_config'
+            ? cutTarget.message
+            : '当前切题接口不可用，请在 设置 → 文档切题 中更换为智谱/DeepSeek/自定义。',
+        );
+      }
       for (let i = 0; i < chunks.length; i++) {
         if (cancelRef.current || abort.signal.aborted) {
           if (allDrafts.length > 0 && (await askKeep(allDrafts.length))) break;
@@ -113,7 +129,8 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
         }
         setProgress(`正在结构化切题 ${i + 1}/${chunks.length} …`);
         const r = await llm.complete(`${STRUCTURING_PROMPT}\n\n--- 文档片段 ---\n${chunks[i].text}`, {
-          model: TEXT_MODEL,
+          model: cutTarget.model,
+          endpoint: { url: cutTarget.url, apiKey: cutTarget.apiKey },
           temperature: 0.1,
           maxTokens: 8192,
           timeoutMs: 120000,
@@ -126,6 +143,7 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
             setStage('preview');
             return;
           }
+          if (r.error?.code === '1301') sensitiveBlocked = true;
           failures.push(`第 ${i + 1} 块：${r.error?.userMessage ?? '请求失败'}`);
           continue;
         }
@@ -137,7 +155,13 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
         }
       }
       if (allDrafts.length === 0) {
-        throw new Error('未能从文档中提取到题目' + (failures.length > 0 ? `（${failures[0]}）` : ''));
+        throw new Error(
+          '未能从文档中提取到题目' +
+            (failures.length > 0 ? `（${failures[0]}）` : '') +
+            (sensitiveBlocked
+              ? '。部分内容被提供商内容审核拒绝：可在 设置 → 文档切题 换成 DeepSeek 或自定义接口后重试。'
+              : ''),
+        );
       }
 
       // 答案表映射（本地确定性逻辑，在 F2 之前写入 answer）
@@ -152,7 +176,15 @@ export function ImportDocScreen({ db, llm, onBack, onOpenReview }: ImportDocScre
       await saveDraftItems(db, batchId, pageId, drafts, 'draft', null);
       await updatePageStatus(db, pageId, 'needs_review');
       if (failures.length > 0) {
-        Alert.alert('部分片段处理失败', failures.join('\n').slice(0, 500));
+        Alert.alert(
+          '部分片段处理失败',
+          (
+            failures.join('\n') +
+            (sensitiveBlocked
+              ? '\n\n部分内容被提供商内容审核拒绝：可在 设置 → 文档切题 换成 DeepSeek 或自定义接口后重试。'
+              : '')
+          ).slice(0, 600),
+        );
       }
       if (table.size > 0) {
         Alert.alert('答案表映射完成', `从文末答案表映射到 ${mapResult.mapped} 道题的答案${mapResult.conflicts > 0 ? `，${mapResult.conflicts} 处冲突需人工确认` : ''}。`);
