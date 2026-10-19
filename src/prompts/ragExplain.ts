@@ -4,10 +4,11 @@
  * CHANGELOG：
  * - 2026-10-16 v1：首版（配合 M4 RAG 讲解上线）。
  * - 2026-10-16 v2：应要求精简：正文 ≤150 字，不复述大段教材原文。
+ * - 2026-10-20 v3：新增轻量 Agent 工具调用提示（教材 / 题库 / 错题）。
  */
 import type { ExplainQuestionInput } from './explain';
 
-export const RAG_PROMPT_VERSION = 'v2';
+export const RAG_PROMPT_VERSION = 'v3';
 
 /** 教材片段不足时模型被要求回复的固定句：视为"无结果"，转为联网/模型知识确认入口 */
 export const RAG_NO_EVIDENCE_REPLY = '当前导入教材未覆盖该知识点';
@@ -47,4 +48,33 @@ ${answer}
 
 教材依据：
 ${evidenceBlock}`;
+}
+
+/**
+ * Agent 版提示：模型先自主调用只读工具，再基于工具结果讲解。
+ * 绑定教材时无命中必须走固定句，避免工具结果为空却用模型知识冒充教材。
+ */
+export function renderAgentPrompt(
+  q: ExplainQuestionInput,
+  questionId: string,
+  hasBoundMaterials: boolean,
+): string {
+  const opts = q.options.length > 0 ? q.options.map((o) => `${o.id}. ${o.text}`).join('\n') : '（判断题）';
+  const answer = q.answerText ? `已知答案：${q.answerText}` : '（试卷未提供答案）';
+  return `你是一位会使用检索工具的讲题老师。你可以自主调用工具查找教材、当前题库相似题和相关错题，信息足够后再回答。
+
+规则：
+1. 直接给出结论和关键推理；正文不超过 150 个中文字，不复述大段材料；
+2. 引用教材时必须使用工具实际返回的 [编号]，禁止伪造引用；
+3. 题库题目和错题记录只用于类比，不能当作教材依据；
+4. ${hasBoundMaterials ? '当前题库已绑定教材；如果 search_materials 没有返回依据，最终只回复"当前导入教材未覆盖该知识点"，禁止用模型知识代替。' : '当前题库未绑定教材；可以检索全部教材，未命中时可使用模型自身知识，但不得声称引用了教材。'};
+5. 工具失败时根据错误信息重试或改用其他工具，不要向用户解释工具过程；
+6. 最终只输出讲解正文，不要使用 Markdown 代码围栏。
+
+当前题目 ID：${questionId}
+
+题目：
+${q.stem}
+${opts}
+${answer}`;
 }

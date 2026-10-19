@@ -9,6 +9,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { MathText } from '../components/MathText';
+import { runAgentLoop, type AgentModel } from '../core/agentLoop';
+import { createAgentTools } from '../core/agentTools';
 import { isTextAnswerCorrect } from '../core/answerCheck';
 import { buildSearchTerms, clipHitText } from '../core/searchTerms';
 import { searchMaterialsSmart } from '../db/fts';
@@ -16,13 +18,14 @@ import { listBankMaterialIds, listBanks, type BankSummary } from '../db/repo_ban
 import { listPracticeQuestions, markWrong, recordAiFeedback, recordAnswer, removeFromWrongBook, shuffleInPlace } from '../db/repo_practice';
 import { setQuestionExplanation, setQuestionFavorite, type QuestionRow } from '../db/repo_questions';
 import { renderExplainPrompt } from '../prompts/explain';
-import { isNoEvidenceAnswer, renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
+import { isNoEvidenceAnswer, renderAgentPrompt, renderRagPrompt, type RagEvidence } from '../prompts/ragExplain';
 import type { LLMService } from '../services/llm/LLMService';
 import { getExplainProvider } from '../services/modelPrefs';
 import {
   getCustomConfig,
   getDeepseekKey,
   resolveExplainTarget,
+  supportsAgentTools,
   ZHIPU_URL,
   type ExplainProviderId,
 } from '../services/llm/providers';
@@ -66,6 +69,8 @@ interface ExplainState {
   fallback: 'web' | 'model' | null;
   /** 生成后自动保存（写入题目解析）的结果 */
   saved: 'ok' | 'fail' | null;
+  /** Agent 当前步骤（检索中/整理中），仅生成期间展示 */
+  status?: string | null;
 }
 
 function parseRow(row: QuestionRow): ParsedQuestion {
@@ -309,12 +314,135 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       const apply = (s: ExplainState) => {
         if (explainSeqRef.current === seq) setExplain(s);
       };
-      apply({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: null, saved: null });
+      apply({
+        loading: true,
+        text: null,
+        error: null,
+        evidence: [],
+        usedLibrary: false,
+        noEvidence: false,
+        fallback: null,
+        saved: null,
+        status: '正在生成讲解…',
+      });
       try {
         const input = { stem: q.stem, options: q.options, answerText: q.answerText };
         const searchText = `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`;
         const terms = buildSearchTerms(searchText);
         const boundIds = await listBankMaterialIds(db, q.bankId);
+        if (supportsAgentTools(target.url)) {
+          const agentModel: AgentModel = {
+            ask: async (messages, tools) => {
+              const r = await llm.complete('', {
+                messages,
+                tools,
+                model: target.model,
+                endpoint: { url: target.url, apiKey: target.apiKey },
+                temperature: 0.3,
+                maxTokens: 2048,
+                timeoutMs: 60000,
+                maxRetries: 0,
+                thinking: 'disabled',
+              });
+              return {
+                ok: r.ok,
+                content: r.content,
+                toolCalls: r.toolCalls ?? [],
+                error: r.error?.userMessage ?? null,
+              };
+            },
+            stream: async (messages, onDelta) => {
+              let acc = '';
+              const r = await llm.completeStream(
+                '',
+                {
+                  messages,
+                  model: target.model,
+                  endpoint: { url: target.url, apiKey: target.apiKey },
+                  temperature: 0.3,
+                  maxTokens: 2048,
+                  timeoutMs: 180000,
+                  thinking: 'disabled',
+                },
+                (delta) => {
+                  acc += delta;
+                  onDelta(delta);
+                },
+              );
+              return {
+                ok: r.ok,
+                content: r.ok ? acc : null,
+                toolCalls: [],
+                error: r.error?.userMessage ?? null,
+              };
+            },
+          };
+          let acc = '';
+          let lastFlush = 0;
+          const result = await runAgentLoop({
+            model: agentModel,
+            messages: [
+              { role: 'system', content: renderAgentPrompt(input, q.id, boundIds.length > 0) },
+              { role: 'user', content: '请开始讲这道题。' },
+            ],
+            tools: createAgentTools(db, q, boundIds),
+            maxRounds: 3,
+            onStatus: (status) => {
+              if (explainSeqRef.current === seq) {
+                setExplain((prev) => (prev ? { ...prev, status } : prev));
+              }
+            },
+            onDelta: (delta) => {
+              acc += delta;
+              const now = Date.now();
+              if (now - lastFlush >= 80) {
+                lastFlush = now;
+                if (explainSeqRef.current === seq) {
+                  setExplain((prev) => (prev ? { ...prev, text: acc } : prev));
+                }
+              }
+            },
+          });
+          const text = acc.trim() || result.content?.trim() || '';
+          if (!result.ok || !text) {
+            apply({
+              loading: false,
+              text: null,
+              error: result.error ?? '生成失败',
+              evidence: [],
+              usedLibrary: false,
+              noEvidence: false,
+              fallback: null,
+              saved: null,
+            });
+            return;
+          }
+          if ((boundIds.length > 0 && result.evidence.length === 0) || isNoEvidenceAnswer(text)) {
+            apply({
+              loading: false,
+              text: null,
+              error: null,
+              evidence: [],
+              usedLibrary: false,
+              noEvidence: true,
+              fallback: null,
+              saved: null,
+            });
+            return;
+          }
+          const saved = await saveExplanation(q.id, text);
+          apply({
+            loading: false,
+            text,
+            error: null,
+            evidence: result.evidence,
+            usedLibrary: result.evidence.length > 0,
+            noEvidence: false,
+            fallback: null,
+            saved,
+          });
+          return;
+        }
         const hits = await searchMaterialsSmart(
           db,
           searchText,
@@ -760,7 +888,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
             {shownExplain?.loading && (
               <View style={styles.explainLoading}>
                 <ActivityIndicator size="small" />
-                <Text style={styles.explainLoadingText}>正在生成讲解…</Text>
+                <Text style={styles.explainLoadingText}>{shownExplain.status ?? '正在生成讲解…'}</Text>
               </View>
             )}
             {shownExplain?.noEvidence && (

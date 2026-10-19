@@ -42,6 +42,87 @@ export async function searchQuestions(db: SQLiteDatabase, query: string, limit =
   return rows.map((r) => ({ refId: r.ref_id, text: r.stem }));
 }
 
+function ftsOrQuery(text: string): string {
+  return buildSearchTerms(text)
+    .map((term) => `"${term.replace(/"/g, '""')}"`)
+    .join(' OR ');
+}
+
+/** 当前题库内的相似题（Agent 工具用；排除当前题与停用题） */
+export async function searchQuestionsInBank(
+  db: SQLiteDatabase,
+  bankId: string,
+  text: string,
+  excludeId: string,
+  limit = 5,
+): Promise<{ id: string; stem: string }[]> {
+  const q = text.trim();
+  if (!q) return [];
+  if (shouldUseLike(q)) {
+    return db.getAllAsync<{ id: string; stem: string }>(
+      `SELECT id, stem FROM questions
+        WHERE bank_id = ? AND id != ? AND status != 'disabled' AND stem LIKE ? ESCAPE '\\'
+        ORDER BY created_at DESC LIMIT ?`,
+      bankId,
+      excludeId,
+      `%${escapeLike(q)}%`,
+      limit,
+    );
+  }
+  const match = ftsOrQuery(q);
+  if (!match) return [];
+  return db.getAllAsync<{ id: string; stem: string }>(
+    `SELECT f.ref_id AS id, f.stem
+       FROM questions_fts f
+       JOIN questions q ON q.id = f.ref_id
+      WHERE questions_fts MATCH ? AND q.bank_id = ? AND q.id != ? AND q.status != 'disabled'
+      ORDER BY bm25(questions_fts) LIMIT ?`,
+    match,
+    bankId,
+    excludeId,
+    limit,
+  );
+}
+
+/** 当前题库内与题干相近的错题（Agent 工具用） */
+export async function searchWrongInBank(
+  db: SQLiteDatabase,
+  bankId: string,
+  text: string,
+  excludeId: string,
+  limit = 5,
+): Promise<{ id: string; stem: string; wrong_count: number; last_wrong_at: string | null }[]> {
+  const q = text.trim();
+  if (!q) return [];
+  if (shouldUseLike(q)) {
+    return db.getAllAsync(
+      `SELECT q.id, q.stem, w.wrong_count, w.last_wrong_at
+         FROM questions q
+         JOIN wrong_book w ON w.question_id = q.id
+        WHERE q.bank_id = ? AND q.id != ? AND q.status != 'disabled' AND q.stem LIKE ? ESCAPE '\\'
+        ORDER BY w.last_wrong_at DESC LIMIT ?`,
+      bankId,
+      excludeId,
+      `%${escapeLike(q)}%`,
+      limit,
+    );
+  }
+  const match = ftsOrQuery(q);
+  if (!match) return [];
+  return db.getAllAsync(
+    `SELECT f.ref_id AS id, f.stem, w.wrong_count, w.last_wrong_at
+       FROM questions_fts f
+       JOIN questions q ON q.id = f.ref_id
+       JOIN wrong_book w ON w.question_id = q.id
+      WHERE questions_fts MATCH ? AND q.bank_id = ? AND q.id != ? AND q.status != 'disabled'
+      ORDER BY bm25(questions_fts) LIMIT ?`,
+    match,
+    bankId,
+    excludeId,
+    limit,
+  );
+}
+
 export async function searchMaterials(db: SQLiteDatabase, query: string, limit = 5): Promise<SearchHit[]> {
   const q = query.trim();
   if (!q) return [];

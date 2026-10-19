@@ -59,6 +59,11 @@ export const ZHIPU_PRO_MODEL = 'glm-5.3';
 // 2026-10 起 DeepSeek 现役模型为 deepseek-flash（V4.1-Flash）；旧名会自动路由到它
 export const DEEPSEEK_MODEL = 'deepseek-flash';
 
+/** 只有官方智谱/DeepSeek 端点保证 function calling；自定义端点走单轮降级。 */
+export function supportsAgentTools(url: string): boolean {
+  return url === ZHIPU_URL || url === DEEPSEEK_URL;
+}
+
 export interface CustomConfig {
   url: string;
   model: string;

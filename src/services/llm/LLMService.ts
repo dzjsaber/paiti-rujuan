@@ -8,6 +8,7 @@
  */
 import { classifyApiError, type ApiErrorInfo } from './errors';
 import { SseTextStream } from './sse';
+import { parseToolCalls, type AgentToolCall, type ChatMessage, type ToolDefinition } from './toolParsing';
 
 export const ZHIPU_CHAT_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 /** 与 providerDefs.DEEPSEEK_URL 同值（此处避免 LLMService 反向依赖 providerDefs） */
@@ -23,6 +24,8 @@ export const TEXT_MODEL = 'glm-4.5-flash';
 export interface LLMCallOptions {
   model: string;
   messages: unknown[];
+  tools?: ToolDefinition[];
+  toolChoice?: 'auto' | 'none';
   temperature?: number;
   maxTokens?: number;
   thinking?: 'enabled' | 'disabled';
@@ -47,6 +50,7 @@ export interface LLMCallResult {
   latencyMs: number;
   attempts: number;
   usage: unknown | null;
+  toolCalls?: AgentToolCall[];
 }
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -105,7 +109,7 @@ export class LLMService {
   async complete(prompt: string, opts: Partial<LLMCallOptions> = {}): Promise<LLMCallResult> {
     return this.call({
       model: opts.model ?? TEXT_MODEL,
-      messages: [{ role: 'user', content: prompt }],
+      messages: opts.messages ?? [{ role: 'user', content: prompt }],
       temperature: opts.temperature ?? 0.3,
       maxTokens: opts.maxTokens ?? 1024,
       timeoutMs: opts.timeoutMs ?? 60000,
@@ -115,6 +119,8 @@ export class LLMService {
       thinking: opts.thinking,
       endpoint: opts.endpoint,
       signal: opts.signal,
+      tools: opts.tools,
+      toolChoice: opts.toolChoice,
     });
   }
 
@@ -141,9 +147,10 @@ export class LLMService {
         usage: null,
       };
     }
+    const messages = (opts.messages ?? [{ role: 'user', content: prompt }]) as ChatMessage[];
     const payload = {
       model: opts.model ?? TEXT_MODEL,
-      messages: [{ role: 'user', content: prompt }],
+      messages,
       temperature: opts.temperature ?? 0.3,
       max_tokens: opts.maxTokens ?? 1024,
       stream: true,
@@ -261,6 +268,7 @@ export class LLMService {
       ...(opts.thinking && thinkingParamAllowed(endpointUrl, opts.model) ? { thinking: { type: opts.thinking } } : {}),
       // 智谱联网搜索（服务端执行，模型自动决定是否搜索）
       ...(opts.webSearch ? { tools: [{ type: 'web_search', web_search: { enable: true } }] } : {}),
+      ...(opts.tools?.length ? { tools: opts.tools, tool_choice: opts.toolChoice ?? 'auto' } : {}),
     };
 
     let attempts = 0;
@@ -306,11 +314,21 @@ export class LLMService {
         }
 
         const j = (await resp.json()) as {
-          choices?: { message?: { content?: string }; finish_reason?: string }[];
+          choices?: { message?: { content?: string; tool_calls?: unknown[] }; finish_reason?: string }[];
           usage?: unknown;
         };
-        const content = j.choices?.[0]?.message?.content ?? null;
-        return { ok: true, content, error: null, httpStatus: resp.status, latencyMs: lastLatency, attempts, usage: j.usage ?? null };
+        const message = j.choices?.[0]?.message;
+        const content = message?.content ?? null;
+        return {
+          ok: true,
+          content,
+          error: null,
+          httpStatus: resp.status,
+          latencyMs: lastLatency,
+          attempts,
+          usage: j.usage ?? null,
+          toolCalls: parseToolCalls(message),
+        };
       } catch (e) {
         clearTimeout(timer);
         opts.signal?.removeEventListener('abort', onExternalAbort);
