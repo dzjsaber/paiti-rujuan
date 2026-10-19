@@ -16,6 +16,7 @@ import { BankScreen } from './src/screens/BankScreen';
 import { ImportDocScreen } from './src/screens/ImportDocScreen';
 import { MaterialScreen } from './src/screens/MaterialScreen';
 import { BackupScreen } from './src/screens/BackupScreen';
+import { CloudBackupScreen } from './src/screens/CloudBackupScreen';
 import { PracticeScreen } from './src/screens/PracticeScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { SelfTestScreen } from './src/screens/SelfTestScreen';
@@ -31,6 +32,7 @@ type Screen =
   | { name: 'importdoc' }
   | { name: 'materials' }
   | { name: 'backup' }
+  | { name: 'cloudbackup' }
   | { name: 'practice'; mode: 'bank' | 'wrong'; order: 'seq' | 'random' }
   | { name: 'wrongbook' }
   | { name: 'settings' }
@@ -151,9 +153,13 @@ export default function App() {
           onBack={goHome}
           onOpenSelfTest={() => setScreen({ name: 'selftest' })}
           onOpenBackup={() => setScreen({ name: 'backup' })}
+          onOpenCloudBackup={() => setScreen({ name: 'cloudbackup' })}
         />
       )}
       {screen.name === 'backup' && <BackupScreen db={db} onBack={() => setScreen({ name: 'settings' })} />}
+      {screen.name === 'cloudbackup' && (
+        <CloudBackupScreen db={db} onBack={() => setScreen({ name: 'settings' })} />
+      )}
       {screen.name === 'selftest' && <SelfTestScreen onBack={() => setScreen({ name: 'settings' })} />}
     </GestureHandlerRootView>
   );

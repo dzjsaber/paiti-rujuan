@@ -45,3 +45,11 @@ builds/dist-m1[a-d]*/
 # 根目录的 M1 残留已归档到 docs/artifacts/，这里的规则只作用于根目录
 /m1a-*.log
 /m1a-audit*.json
+
+# Python server
+server/.venv/
+server/.env
+server/*.db
+.cache/
+__pycache__/
+.pytest_cache/

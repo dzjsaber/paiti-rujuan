@@ -52,9 +52,10 @@ export interface SettingsScreenProps {
   onBack: () => void;
   onOpenSelfTest: () => void;
   onOpenBackup: () => void;
+  onOpenCloudBackup: () => void;
 }
 
-export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: SettingsScreenProps) {
+export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup, onOpenCloudBackup }: SettingsScreenProps) {
   const [current, setCurrent] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [tier, setTier] = useState<ModelTier>('glm-4.6v-flash');
@@ -155,7 +156,7 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
     { key: 'cut', title: '文档切题', summary: CUT_OPTIONS.find((o) => o.id === cutProvider)?.label ?? '智谱' },
     { key: 'explain', title: '讲解方式', summary: EXPLAIN_PROVIDERS[explainProvider].label },
     { key: 'advanced', title: '附加配置', summary: custom.url ? '自定义接口已配置' : '自定义接口未配置' },
-    { key: 'data', title: '数据', summary: '备份与恢复 · 技术自检' },
+    { key: 'data', title: '数据', summary: '本地备份 · 云端备份 · 技术自检' },
   ];
 
   return (
@@ -365,6 +366,10 @@ export function SettingsScreen({ onBack, onOpenSelfTest, onOpenBackup }: Setting
 
       <Pressable style={styles.btnGhost} onPress={onOpenBackup}>
         <Text style={styles.btnGhostText}>数据备份与恢复</Text>
+      </Pressable>
+
+      <Pressable style={styles.btnGhost} onPress={onOpenCloudBackup}>
+        <Text style={styles.btnGhostText}>云端备份（多设备迁移）</Text>
       </Pressable>
 
             </>
