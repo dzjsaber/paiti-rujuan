@@ -17,6 +17,8 @@ export interface AgentModelResult {
   content: string | null;
   toolCalls: AgentToolCall[];
   error?: string | null;
+  usage?: unknown | null;
+  latencyMs?: number;
 }
 
 export interface AgentModel {
@@ -42,6 +44,31 @@ export interface AgentRunResult {
   error: string | null;
   evidence: RagEvidence[];
   toolCount: number;
+  trace: AgentTrace;
+}
+
+export interface AgentTraceTool {
+  name: string;
+  argumentChars: number;
+  latencyMs: number;
+  ok: boolean;
+  resultChars: number;
+  evidenceCount: number;
+}
+
+export interface AgentTraceRound {
+  index: number;
+  mode: 'ask' | 'final';
+  latencyMs: number;
+  usage: unknown | null;
+  outputChars: number;
+  tools: AgentTraceTool[];
+}
+
+export interface AgentTrace {
+  startedAt: string;
+  totalMs: number;
+  rounds: AgentTraceRound[];
 }
 
 export interface AgentRunOptions {
@@ -59,20 +86,39 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   const definitions = opts.tools.map((tool) => tool.definition);
   const messages = [...opts.messages];
   const evidence: RagEvidence[] = [];
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const trace: AgentTrace = { startedAt, totalMs: 0, rounds: [] };
   let toolCount = 0;
+  let citationReminderSent = false;
 
   for (let round = 0; round < maxRounds; round += 1) {
     opts.onStatus?.(round === 0 ? '正在分析题目…' : '正在整理检索结果…');
+    const roundStarted = Date.now();
     const result = await opts.model.ask(messages, definitions);
+    const traceRound: AgentTraceRound = {
+      index: round,
+      mode: 'ask',
+      latencyMs: result.latencyMs ?? Date.now() - roundStarted,
+      usage: result.usage ?? null,
+      outputChars: result.content?.length ?? 0,
+      tools: [],
+    };
+    trace.rounds.push(traceRound);
     if (!result.ok) {
-      return { ok: false, content: null, error: result.error ?? '生成失败', evidence, toolCount };
+      trace.totalMs = Date.now() - startedMs;
+      return { ok: false, content: null, error: result.error ?? '生成失败', evidence, toolCount, trace };
     }
     const calls = result.toolCalls ?? [];
     if (calls.length === 0) {
       const content = result.content?.trim() || null;
-      if (!content) return { ok: false, content: null, error: '模型没有返回讲解内容', evidence, toolCount };
+      if (!content) {
+        trace.totalMs = Date.now() - startedMs;
+        return { ok: false, content: null, error: '模型没有返回讲解内容', evidence, toolCount, trace };
+      }
       opts.onDelta?.(content);
-      return { ok: true, content, error: null, evidence, toolCount };
+      trace.totalMs = Date.now() - startedMs;
+      return { ok: true, content, error: null, evidence, toolCount, trace };
     }
 
     messages.push(assistantToolMessage(result.content, calls));
@@ -80,23 +126,66 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
       const tool = tools.get(call.name);
       const args = parseToolArguments(call.arguments);
       if (!tool) {
-        messages.push(toolResultMessage(call, `工具不存在：${call.name}`));
+        const errorText = `工具不存在：${call.name}`;
+        messages.push(toolResultMessage(call, `<tool_result name="${call.name}">\n${errorText}\n</tool_result>`));
+        traceRound.tools.push({
+          name: call.name,
+          argumentChars: call.arguments.length,
+          latencyMs: 0,
+          ok: false,
+          resultChars: errorText.length,
+          evidenceCount: 0,
+        });
         continue;
       }
       if (!args) {
-        messages.push(toolResultMessage(call, '工具参数不是合法 JSON，请修正参数后重试。'));
+        const errorText = '工具参数不是合法 JSON，请修正参数后重试。';
+        messages.push(toolResultMessage(call, `<tool_result name="${call.name}">\n${errorText}\n</tool_result>`));
+        traceRound.tools.push({
+          name: call.name,
+          argumentChars: call.arguments.length,
+          latencyMs: 0,
+          ok: false,
+          resultChars: errorText.length,
+          evidenceCount: 0,
+        });
         continue;
       }
       opts.onStatus?.(`正在${tool.label}…`);
+      const toolStarted = Date.now();
       try {
         const executed = await tool.execute(args);
         toolCount += 1;
         evidence.push(...(executed.evidence ?? []));
-        messages.push(toolResultMessage(call, executed.content));
+        messages.push(toolResultMessage(call, `<tool_result name="${call.name}">\n${executed.content}\n</tool_result>`));
+        traceRound.tools.push({
+          name: call.name,
+          argumentChars: call.arguments.length,
+          latencyMs: Date.now() - toolStarted,
+          ok: true,
+          resultChars: executed.content.length,
+          evidenceCount: executed.evidence?.length ?? 0,
+        });
         opts.onStatus?.(`${tool.label}：${executed.summary}`);
       } catch (e) {
-        messages.push(toolResultMessage(call, `工具执行失败：${String((e as Error)?.message ?? e)}`));
+        const errorText = `工具执行失败：${String((e as Error)?.message ?? e)}`;
+        messages.push(toolResultMessage(call, `<tool_result name="${call.name}">\n${errorText}\n</tool_result>`));
+        traceRound.tools.push({
+          name: call.name,
+          argumentChars: call.arguments.length,
+          latencyMs: Date.now() - toolStarted,
+          ok: false,
+          resultChars: errorText.length,
+          evidenceCount: 0,
+        });
       }
+    }
+    if (evidence.length > 0 && !citationReminderSent) {
+      messages.push({
+        role: 'user',
+        content: '当前已有教材依据。最终正文必须至少标注一个实际返回的 [编号]，不得省略引用。',
+      });
+      citationReminderSent = true;
     }
   }
 
@@ -105,9 +194,19 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     role: 'user',
     content: '请根据以上工具结果直接给出最终讲解，不要再调用工具；遵守系统提示的字数和引用要求。',
   });
+  const finalStarted = Date.now();
   const final = await opts.model.stream(messages, opts.onDelta ?? (() => undefined));
+  trace.rounds.push({
+    index: trace.rounds.length,
+    mode: 'final',
+    latencyMs: final.latencyMs ?? Date.now() - finalStarted,
+    usage: final.usage ?? null,
+    outputChars: final.content?.length ?? 0,
+    tools: [],
+  });
+  trace.totalMs = Date.now() - startedMs;
   if (!final.ok) {
-    return { ok: false, content: null, error: final.error ?? '生成失败', evidence, toolCount };
+    return { ok: false, content: null, error: final.error ?? '生成失败', evidence, toolCount, trace };
   }
   const content = final.content?.trim() || null;
   return {
@@ -116,5 +215,6 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     error: content ? null : '模型没有返回讲解内容',
     evidence,
     toolCount,
+    trace,
   };
 }

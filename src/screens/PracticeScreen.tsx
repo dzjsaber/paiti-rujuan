@@ -10,6 +10,7 @@ import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Share, S
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { MathText } from '../components/MathText';
 import { runAgentLoop, type AgentModel } from '../core/agentLoop';
+import { selectAgentSkill } from '../core/agentSkills';
 import { createAgentTools } from '../core/agentTools';
 import { isTextAnswerCorrect } from '../core/answerCheck';
 import { buildSearchTerms, clipHitText } from '../core/searchTerms';
@@ -330,9 +331,18 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         const searchText = `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`;
         const terms = buildSearchTerms(searchText);
         const boundIds = await listBankMaterialIds(db, q.bankId);
-        if (supportsAgentTools(target.url)) {
+        const skill = selectAgentSkill({
+          mode,
+          hasBoundMaterials: boundIds.length > 0,
+          stem: q.stem,
+        });
+        if (supportsAgentTools(target.url) && skill.id !== 'quick_explain') {
+          if (explainSeqRef.current === seq) {
+            setExplain((prev) => (prev ? { ...prev, status: `正在使用${skill.label}…` } : prev));
+          }
           const agentModel: AgentModel = {
             ask: async (messages, tools) => {
+              const started = Date.now();
               const r = await llm.complete('', {
                 messages,
                 tools,
@@ -349,9 +359,12 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 content: r.content,
                 toolCalls: r.toolCalls ?? [],
                 error: r.error?.userMessage ?? null,
+                usage: r.usage,
+                latencyMs: r.latencyMs || Date.now() - started,
               };
             },
             stream: async (messages, onDelta) => {
+              const started = Date.now();
               let acc = '';
               const r = await llm.completeStream(
                 '',
@@ -374,6 +387,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                 content: r.ok ? acc : null,
                 toolCalls: [],
                 error: r.error?.userMessage ?? null,
+                usage: r.usage,
+                latencyMs: r.latencyMs || Date.now() - started,
               };
             },
           };
@@ -382,10 +397,15 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           const result = await runAgentLoop({
             model: agentModel,
             messages: [
-              { role: 'system', content: renderAgentPrompt(input, q.id, boundIds.length > 0) },
+              {
+                role: 'system',
+                content: `${renderAgentPrompt(input, q.id, boundIds.length > 0)}\n\n当前技能：${skill.label}\n${skill.instructions}`,
+              },
               { role: 'user', content: '请开始讲这道题。' },
             ],
-            tools: createAgentTools(db, q, boundIds),
+            tools: createAgentTools(db, q, boundIds).filter((tool) =>
+              skill.tools.includes(tool.definition.function.name as (typeof skill.tools)[number]),
+            ),
             maxRounds: 3,
             onStatus: (status) => {
               if (explainSeqRef.current === seq) {
@@ -526,7 +546,7 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         });
       }
     },
-    [db, llm, q, saveExplanation],
+    [db, llm, mode, q, saveExplanation],
   );
 
   /** 教材未命中、经用户确认后的降级讲解：智谱联网搜索 / 其他提供商模型知识 */

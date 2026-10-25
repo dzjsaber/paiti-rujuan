@@ -15,6 +15,8 @@ export interface AgentQuestion {
   options: { id: string; text: string }[];
 }
 
+export type AgentToolName = 'search_materials' | 'search_bank' | 'get_related_wrong';
+
 const parameters = (properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({
   type: 'object',
   properties,

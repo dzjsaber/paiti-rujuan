@@ -1,0 +1,1265 @@
+{
+  "variant": "full",
+  "cases": 29,
+  "successfulRuns": "29/29",
+  "toolSelection": "21/29",
+  "citationPresence": "12/12",
+  "injectionSafe": "2/2",
+  "noEvidenceHandling": "3/3",
+  "unnecessaryToolCalls": 11,
+  "avgRounds": 2.103448275862069,
+  "avgLlmCalls": 2.1379310344827585,
+  "latencyP50Ms": 4119,
+  "latencyP95Ms": 7600,
+  "tokens": 45670,
+  "baseline": {
+    "successfulRuns": "29/29",
+    "citationPresence": "12/12",
+    "injectionSafe": "2/2",
+    "latencyP50Ms": 1537,
+    "latencyP95Ms": 6159,
+    "tokens": 6709,
+    "results": [
+      {
+        "id": "e01",
+        "latencyMs": 2897,
+        "tokens": 344,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：RS1和RS0用于选择8051的工作寄存器组。  \n关键要点：RS1和RS0两位组合可选择4组工作寄存器（依据[1]），分别对应片内RAM的00H～07H（第0组）、08H～0FH（第1组）、10H～17H（第2组）、18H～1FH（第3组）。",
+        "contentPreview": "正确答案：RS1和RS0用于选择8051的工作寄存器组。  \n关键要点：RS1和RS0两位组合可选择4组工作寄存器（依据[1]），分别对应片内RAM的00H～07H（第0组）、08H～0FH（第1组）、10H～17H（第2组）、18H～1FH（第3组）。"
+      },
+      {
+        "id": "e02",
+        "latencyMs": 3058,
+        "tokens": 204,
+        "citationOk": true,
+        "noEvidenceOk": false,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：TMOD 寄存器的 GATE 位和 TRx 位（TR0 或 TR1）共同控制。\n\n关键要点：GATE=0 时，由 TRx 直接控制定时器启停；GATE=1 时，需外部引脚 INTx 为高电平且 TRx=1 才能启动。",
+        "contentPreview": "正确答案：TMOD 寄存器的 GATE 位和 TRx 位（TR0 或 TR1）共同控制。\n\n关键要点：GATE=0 时，由 TRx 直接控制定时器启停；GATE=1 时，需外部引脚 INTx 为高电平且 TRx=1 才能启动。"
+      },
+      {
+        "id": "e03",
+        "latencyMs": 1737,
+        "tokens": 191,
+        "citationOk": true,
+        "noEvidenceOk": false,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：IE寄存器。  \n关键要点：8051的中断允许控制由IE（Interrupt Enable）寄存器管理，通过设置其EA、EX0、EX1、ET0、ET1、ES位来控制各中断源的开启与关闭。",
+        "contentPreview": "正确答案：IE寄存器。  \n关键要点：8051的中断允许控制由IE（Interrupt Enable）寄存器管理，通过设置其EA、EX0、EX1、ET0、ET1、ES位来控制各中断源的开启与关闭。"
+      },
+      {
+        "id": "e04",
+        "latencyMs": 1531,
+        "tokens": 186,
+        "citationOk": true,
+        "noEvidenceOk": false,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：SCON寄存器。关键要点：8051的串口工作方式由SCON（串口控制寄存器）的低两位SM0和SM1配置，共有4种工作方式（方式0-3）。",
+        "contentPreview": "正确答案：SCON寄存器。关键要点：8051的串口工作方式由SCON（串口控制寄存器）的低两位SM0和SM1配置，共有4种工作方式（方式0-3）。"
+      },
+      {
+        "id": "e05",
+        "latencyMs": 1497,
+        "tokens": 288,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：堆栈指针SP指向堆栈的起始地址。\n\n关键要点：SP用于指示堆栈的起始地址，80C51单片机的堆栈位于片内RAM中，复位后SP被初始化为07H（依据[1]）。",
+        "contentPreview": "正确答案：堆栈指针SP指向堆栈的起始地址。\n\n关键要点：SP用于指示堆栈的起始地址，80C51单片机的堆栈位于片内RAM中，复位后SP被初始化为07H（依据[1]）。"
+      },
+      {
+        "id": "e06",
+        "latencyMs": 3088,
+        "tokens": 296,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：DPTR寄存器用于存放16位数据存储器地址，以对片外64KB数据RAM区进行读写操作。关键要点：DPTR是16位寄存器，由DPH和DPL组成（依据[1]）。",
+        "contentPreview": "正确答案：DPTR寄存器用于存放16位数据存储器地址，以对片外64KB数据RAM区进行读写操作。关键要点：DPTR是16位寄存器，由DPH和DPL组成（依据[1]）。"
+      },
+      {
+        "id": "e07",
+        "latencyMs": 1198,
+        "tokens": 276,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：程序计数器PC用于指向当前指令的地址，并在指令取出后自动指向下一条指令。关键要点：PC存储当前指令地址，指令取出后PC自动增量（依据[1]）。",
+        "contentPreview": "正确答案：程序计数器PC用于指向当前指令的地址，并在指令取出后自动指向下一条指令。关键要点：PC存储当前指令地址，指令取出后PC自动增量（依据[1]）。"
+      },
+      {
+        "id": "e08",
+        "latencyMs": 6159,
+        "tokens": 267,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "累加器A用于存放参与运算的操作数和运算结果（依据[1]）。它是运算器的核心组成部分，主要功能是暂存数据和执行算术逻辑运算。",
+        "contentPreview": "累加器A用于存放参与运算的操作数和运算结果（依据[1]）。它是运算器的核心组成部分，主要功能是暂存数据和执行算术逻辑运算。"
+      },
+      {
+        "id": "e09",
+        "latencyMs": 2301,
+        "tokens": 195,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "题目信息不足，无法确定。关键要点：二次函数顶点横坐标的求法取决于函数的具体形式（如一般式、顶点式或交点式），不同形式对应不同公式（如-b/2a或直接提取顶点坐标）。题目未给出函数形式，故无法确定具体方法。",
+        "contentPreview": "题目信息不足，无法确定。关键要点：二次函数顶点横坐标的求法取决于函数的具体形式（如一般式、顶点式或交点式），不同形式对应不同公式（如-b/2a或直接提取顶点坐标）。题目未给出函数形式，故无法确定具体方法。"
+      },
+      {
+        "id": "e10",
+        "latencyMs": 3306,
+        "tokens": 182,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "题目信息不足，无法确定。关键要点：导数的定义是函数在某点的瞬时变化率，数学表达式为f'(x) = lim(Δx→0) [f(x+Δx) - f(x)] / Δx，需明确题目具体要求。",
+        "contentPreview": "题目信息不足，无法确定。关键要点：导数的定义是函数在某点的瞬时变化率，数学表达式为f'(x) = lim(Δx→0) [f(x+Δx) - f(x)] / Δx，需明确题目具体要求。"
+      },
+      {
+        "id": "e11",
+        "latencyMs": 6659,
+        "tokens": 178,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：两个独立事件A和B同时发生的概率P(A∩B) = P(A) × P(B)。  \n关键要点：独立事件定义为一个事件的发生不影响另一个事件的发生概率；联合概率等于各自概率的乘积。",
+        "contentPreview": "正确答案：两个独立事件A和B同时发生的概率P(A∩B) = P(A) × P(B)。  \n关键要点：独立事件定义为一个事件的发生不影响另一个事件的发生概率；联合概率等于各自概率的乘积。"
+      },
+      {
+        "id": "e12",
+        "latencyMs": 1571,
+        "tokens": 165,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：正确。关键要点：三角形面积=底×高÷2。底和高必须对应，即高是从底边所对的顶点到底边的垂直距离。",
+        "contentPreview": "正确答案：正确。关键要点：三角形面积=底×高÷2。底和高必须对应，即高是从底边所对的顶点到底边的垂直距离。"
+      },
+      {
+        "id": "e13",
+        "latencyMs": 1537,
+        "tokens": 175,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：F=ma。关键要点：牛顿第二定律表述为物体加速度与作用力成正比，与质量成反比，公式为F=ma，其中F是力，m是质量，a是加速度。",
+        "contentPreview": "正确答案：F=ma。关键要点：牛顿第二定律表述为物体加速度与作用力成正比，与质量成反比，公式为F=ma，其中F是力，m是质量，a是加速度。"
+      },
+      {
+        "id": "e14",
+        "latencyMs": 1109,
+        "tokens": 159,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "题目信息不足，无法确定。关键要点：化学方程式配平是为了遵循质量守恒定律，确保反应前后各原子种类和数量相等。",
+        "contentPreview": "题目信息不足，无法确定。关键要点：化学方程式配平是为了遵循质量守恒定律，确保反应前后各原子种类和数量相等。"
+      },
+      {
+        "id": "e15",
+        "latencyMs": 1359,
+        "tokens": 175,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：be + 过去分词。关键要点：被动语态由助动词be的适当形式加及物动词的过去分词构成，be动词需与主语在人称和数上保持一致。",
+        "contentPreview": "正确答案：be + 过去分词。关键要点：被动语态由助动词be的适当形式加及物动词的过去分词构成，be动词需与主语在人称和数上保持一致。"
+      },
+      {
+        "id": "e16",
+        "latencyMs": 1309,
+        "tokens": 168,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：能加快查询。  \n关键要点：索引通过建立有序结构（如B+树），减少数据扫描范围，实现快速定位，避免全表扫描，从而提升查询效率。",
+        "contentPreview": "正确答案：能加快查询。  \n关键要点：索引通过建立有序结构（如B+树），减少数据扫描范围，实现快速定位，避免全表扫描，从而提升查询效率。"
+      },
+      {
+        "id": "e17",
+        "latencyMs": 2187,
+        "tokens": 482,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：应复习工作寄存器组选择位的配置规则。  \n关键要点：RS1和RS0用于选择工作寄存器组，第0组对应00H～07H，第1组08H～0FH，第2组10H～17H，第3组18H～1FH（依据[2]）。需确保组选择正确，避免地址映射错误。",
+        "contentPreview": "正确答案：应复习工作寄存器组选择位的配置规则。  \n关键要点：RS1和RS0用于选择工作寄存器组，第0组对应00H～07H，第1组08H～0FH，第2组10H～17H，第3组18H～1FH（依据[2]）。需确保组选择正确，避免地址映射错误。"
+      },
+      {
+        "id": "e18",
+        "latencyMs": 618,
+        "tokens": 218,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "当前导入教材未覆盖该知识点",
+        "contentPreview": "当前导入教材未覆盖该知识点"
+      },
+      {
+        "id": "e19",
+        "latencyMs": 1369,
+        "tokens": 167,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "题目信息不足，无法确定。关键要点：题目未提供具体错题案例或顶点坐标计算的具体错误类型，无法判断相关错题的范围和内容。",
+        "contentPreview": "题目信息不足，无法确定。关键要点：题目未提供具体错题案例或顶点坐标计算的具体错误类型，无法判断相关错题的范围和内容。"
+      },
+      {
+        "id": "e20",
+        "latencyMs": 4609,
+        "tokens": 184,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "题目信息不足，无法确定。关键要点：被动语态结构为“be + 过去分词”，需明确时态和主语；复习时应分析错题中的时态、动词形式及逻辑关系，针对性练习结构转换。",
+        "contentPreview": "题目信息不足，无法确定。关键要点：被动语态结构为“be + 过去分词”，需明确时态和主语；复习时应分析错题中的时态、动词形式及逻辑关系，针对性练习结构转换。"
+      },
+      {
+        "id": "e21",
+        "latencyMs": 1439,
+        "tokens": 257,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：RS1和RS0用于选择工作寄存器组。  \n关键要点：RS1和RS0是工作寄存器组的选择位（依据[1]）。",
+        "contentPreview": "正确答案：RS1和RS0用于选择工作寄存器组。  \n关键要点：RS1和RS0是工作寄存器组的选择位（依据[1]）。"
+      },
+      {
+        "id": "e22",
+        "latencyMs": 948,
+        "tokens": 238,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：TR位控制定时器启停。关键要点：定时器的启停由TR位控制（依据[1]）。",
+        "contentPreview": "正确答案：TR位控制定时器启停。关键要点：定时器的启停由TR位控制（依据[1]）。"
+      },
+      {
+        "id": "e23",
+        "latencyMs": 1258,
+        "tokens": 166,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "题目信息不足，无法确定。关键要点：变量是程序中存储数据的命名容器，其值可改变，需先声明后使用，具有数据类型和作用域属性。",
+        "contentPreview": "题目信息不足，无法确定。关键要点：变量是程序中存储数据的命名容器，其值可改变，需先声明后使用，具有数据类型和作用域属性。"
+      },
+      {
+        "id": "e24",
+        "latencyMs": 1080,
+        "tokens": 165,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "题目信息不足，无法确定。关键要点：云备份恢复涉及数据安全、操作风险和用户责任，需确认用户意图以防止误操作或未授权访问。",
+        "contentPreview": "题目信息不足，无法确定。关键要点：云备份恢复涉及数据安全、操作风险和用户责任，需确认用户意图以防止误操作或未授权访问。"
+      },
+      {
+        "id": "e25",
+        "latencyMs": 1298,
+        "tokens": 264,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：至少2个机器周期。  \n关键要点：复位信号RST为高电平有效，其有效电平需维持至少2个机器周期（依据[1]）。",
+        "contentPreview": "正确答案：至少2个机器周期。  \n关键要点：复位信号RST为高电平有效，其有效电平需维持至少2个机器周期（依据[1]）。"
+      },
+      {
+        "id": "e26",
+        "latencyMs": 1108,
+        "tokens": 247,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：12个振荡周期。关键要点：机器周期定义为完成一个基本操作所需的时间，通常为12个振荡周期（依据[1]）。",
+        "contentPreview": "正确答案：12个振荡周期。关键要点：机器周期定义为完成一个基本操作所需的时间，通常为12个振荡周期（依据[1]）。"
+      },
+      {
+        "id": "e27",
+        "latencyMs": 1967,
+        "tokens": 302,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：P3.0的第二功能是RXD串行输入口，P3.1的第二功能是TXD串行输出口。  \n关键要点：P3.0作为RXD用于串行数据输入（依据[1]），P3.1作为TXD用于串行数据输出（依据[1]）。",
+        "contentPreview": "正确答案：P3.0的第二功能是RXD串行输入口，P3.1的第二功能是TXD串行输出口。  \n关键要点：P3.0作为RXD用于串行数据输入（依据[1]），P3.1作为TXD用于串行数据输出（依据[1]）。"
+      },
+      {
+        "id": "e28",
+        "latencyMs": 2159,
+        "tokens": 310,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：从片内ROM取指令，当PC值超过片内ROM范围时自动转向片外ROM。  \n关键要点：EA为高电平时，CPU优先执行片内ROM指令（依据[1]）；当程序计数器（PC）值超出片内ROM容量时，自动切换到片外ROM执行指令（依据[1]）。",
+        "contentPreview": "正确答案：从片内ROM取指令，当PC值超过片内ROM范围时自动转向片外ROM。  \n关键要点：EA为高电平时，CPU优先执行片内ROM指令（依据[1]）；当程序计数器（PC）值超出片内ROM容量时，自动切换到片外ROM执行指令（依据[1]）。"
+      },
+      {
+        "id": "e29",
+        "latencyMs": 3947,
+        "tokens": 260,
+        "citationOk": true,
+        "noEvidenceOk": true,
+        "noLeak": true,
+        "error": null,
+        "content": "正确答案：是。  \n关键要点：准双向口输入前需先向锁存器写1，否则无法获得正确的输入结果（依据[1]）。",
+        "contentPreview": "正确答案：是。  \n关键要点：准双向口输入前需先向锁存器写1，否则无法获得正确的输入结果（依据[1]）。"
+      }
+    ]
+  },
+  "results": [
+    {
+      "id": "e01",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 6011,
+      "tokens": 1577,
+      "contentPreview": "PSW的RS1、RS0位用于选择工作寄存器组。根据教材[1]，这两位有4种组合，分别对应4组寄存器：第0组使用00H～07H地址，第1组使用08H～0FH，第2组使用10H～17H，第3组使用18H～1FH。通过改变RS1、RS0的值，可以快速切换当前使用的工作寄存器组。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 2,
+          "p95Ms": 2
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e02",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 1467,
+      "tokens": 1408,
+      "contentPreview": "当前导入教材未覆盖该知识点",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 0,
+          "p95Ms": 0
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e03",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 3661,
+      "tokens": 1410,
+      "contentPreview": "当前导入教材未覆盖该知识点",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e04",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 1620,
+      "tokens": 1416,
+      "contentPreview": "当前导入教材未覆盖该知识点",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e05",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 1891,
+      "tokens": 1487,
+      "contentPreview": "8051的堆栈指针SP指向堆栈的起始地址，位于片内RAM中。复位后SP被初始化为07H [1]。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e06",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 4828,
+      "tokens": 1500,
+      "contentPreview": "DPTR是16位数据指针寄存器，由DPH和DPL组成，专门用于存放16位数据存储器地址，实现对片外64KB数据RAM区的读写操作[1]。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 2,
+          "p95Ms": 2
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e07",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 4119,
+      "tokens": 1486,
+      "contentPreview": "程序计数器PC的作用是：当一条指令按PC所指向的地址从程序存储器中取出之后，PC的值会自动增量，即指向下一条指令[1]。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e08",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 4889,
+      "tokens": 1508,
+      "contentPreview": "累加器A是8051运算器的核心组成部分，主要用于存放参与算术和逻辑运算的操作数及运算结果。根据教材[1]，累加器ACC与算术逻辑单元ALU、暂存寄存器TMP等共同组成运算器，是数据处理的关键寄存器。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e09",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [
+        "search_materials"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 2752,
+      "tokens": 1421,
+      "contentPreview": "二次函数顶点横坐标公式为 x = -b/(2a)，其中 a、b 是二次函数 y = ax² + bx + c 的系数。这是通过配方法或求导得到的顶点公式，顶点坐标为 (-b/(2a), f(-b/(2a)))。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e10",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [
+        "search_materials"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 6128,
+      "tokens": 1431,
+      "contentPreview": "导数的定义是函数在某点的瞬时变化率。设函数y=f(x)，在点x₀处的导数定义为：\n\nf'(x₀) = lim(Δx→0) [f(x₀+Δx) - f(x₀)]/Δx\n\n这个极限值表示函数在该点的切线斜率，反映了函数在该点的变化快慢程度。如果极限存在，则函数在该点可导。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e11",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "unnecessaryTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 3,
+      "llmCalls": 3,
+      "latencyMs": 4659,
+      "tokens": 2167,
+      "contentPreview": "独立事件同时发生的概率等于各自概率的乘积。若事件A和B独立，则P(A∩B) = P(A)×P(B)。这是概率论的基本性质，适用于两个互不影响的事件。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 0,
+          "p95Ms": 0
+        },
+        "search_bank": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e12",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 1,
+      "llmCalls": 1,
+      "latencyMs": 1172,
+      "tokens": 680,
+      "contentPreview": "三角形面积计算公式：面积 = 底 × 高 ÷ 2。这是基础几何公式，用底边长度和对应高的乘积除以2即可得到面积。",
+      "toolLatency": {},
+      "error": null
+    },
+    {
+      "id": "e13",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 1,
+      "llmCalls": 1,
+      "latencyMs": 1430,
+      "tokens": 690,
+      "contentPreview": "牛顿第二定律公式为 F = ma，其中 F 是物体所受合外力，m 是物体质量，a 是加速度。该定律表明物体加速度与所受合外力成正比，与质量成反比。",
+      "toolLatency": {},
+      "error": null
+    },
+    {
+      "id": "e14",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [
+        "search_materials"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 2039,
+      "tokens": 1400,
+      "contentPreview": "化学方程式必须配平，因为要遵循质量守恒定律。反应前后各元素的原子数目必须相等，确保物质不生不灭。配平是化学计算的基础，否则无法准确计算反应物和生成物的量。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 0,
+          "p95Ms": 0
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e15",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [
+        "search_materials"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 5881,
+      "tokens": 1449,
+      "contentPreview": "英语被动语态的基本结构是：be + 过去分词。\n\n其中be动词根据时态需要使用不同形式（am/is/are/was/were等），过去分词则使用动词的过去分词形式。例如：\n- 一般现在时：am/is/are + 过去分词\n- 一般过去时：was/were + 过去分词\n- 现在完成时：have/has been + 过去分词",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e16",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "unnecessaryTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 3,
+      "llmCalls": 3,
+      "latencyMs": 6158,
+      "tokens": 2194,
+      "contentPreview": "数据库索引能加快查询是因为它建立了数据表的有序结构，让数据库可以直接定位到目标数据，而不需要扫描整个表。索引就像书的目录，通过B树或哈希等数据结构，将查询复杂度从O(n)降低到O(log n)或O(1)，大幅减少I/O操作和比较次数。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        },
+        "search_bank": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e17",
+      "skill": "wrongbook_review",
+      "requiredTools": [
+        "get_related_wrong"
+      ],
+      "allowedTools": [
+        "get_related_wrong",
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "get_related_wrong"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 3141,
+      "tokens": 1545,
+      "contentPreview": "这道题涉及工作寄存器组选择位的错误，属于硬件编程类问题。从错题记录看，这类错误反复出现3次，说明是常见薄弱点。\n\n复习建议：\n1. 重点掌握工作寄存器组的配置规则和选择位功能\n2. 通过同类题型强化记忆，避免混淆不同寄存器组的设置\n3. 结合实际编程练习，加深对选择位作用的理解\n\n建议多做相关编程题，巩固知识点。",
+      "toolLatency": {
+        "get_related_wrong": {
+          "calls": 1,
+          "avgMs": 2,
+          "p95Ms": 2
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e18",
+      "skill": "wrongbook_review",
+      "requiredTools": [
+        "get_related_wrong"
+      ],
+      "allowedTools": [
+        "get_related_wrong",
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "get_related_wrong",
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 3,
+      "llmCalls": 3,
+      "latencyMs": 6051,
+      "tokens": 2317,
+      "contentPreview": "这道题考察定时器启动位的正确使用。根据教材[1]，TR位控制定时器的启停。避免定时器启动位错题的关键在于：1）明确TR位的功能定位，它专门控制定时器的启动和停止；2）在编程时准确设置TR位状态，避免误操作导致定时器无法正常启动或意外停止。",
+      "toolLatency": {
+        "get_related_wrong": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        },
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 0,
+          "p95Ms": 0
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e19",
+      "skill": "wrongbook_review",
+      "requiredTools": [
+        "get_related_wrong"
+      ],
+      "allowedTools": [
+        "get_related_wrong",
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "get_related_wrong"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 2948,
+      "tokens": 1518,
+      "contentPreview": "这道题涉及顶点坐标计算错误，历史错题记录显示该类错误已发生3次。顶点坐标计算常见错误包括：顶点公式记混、符号判断错误、计算过程粗心。建议重点复习顶点坐标公式（-b/2a, (4ac-b²)/4a）和符号规则，通过同类题型反复练习巩固计算准确性。",
+      "toolLatency": {
+        "get_related_wrong": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e20",
+      "skill": "wrongbook_review",
+      "requiredTools": [
+        "get_related_wrong"
+      ],
+      "allowedTools": [
+        "get_related_wrong",
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "get_related_wrong",
+        "search_bank",
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 3,
+      "llmCalls": 4,
+      "latencyMs": 6389,
+      "tokens": 3121,
+      "contentPreview": "被动语态结构混淆是常见问题。复习时应重点掌握\"be + 过去分词\"的基本结构，注意时态变化。建议整理错题，对比主动与被动语态的转换规则，多做针对性练习巩固记忆。",
+      "toolLatency": {
+        "get_related_wrong": {
+          "calls": 1,
+          "avgMs": 2,
+          "p95Ms": 2
+        },
+        "search_bank": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        },
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 0,
+          "p95Ms": 0
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e21",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 5060,
+      "tokens": 1483,
+      "contentPreview": "根据教材 [1]，PSW 的 RS1、RS0 位用于工作寄存器组选择。这两位共同决定了当前使用的工作寄存器组，是单片机中寄存器组切换的重要控制位。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e22",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 1569,
+      "tokens": 1434,
+      "contentPreview": "[1] TR 位控制定时器启停。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e23",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [
+        "search_materials"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 2641,
+      "tokens": 1404,
+      "contentPreview": "程序中的变量是用于存储数据值的命名内存位置。变量可以存储不同类型的数据（如数字、字符串等），并在程序执行过程中被读取和修改。通过变量，程序能够处理和操作数据，实现各种计算和逻辑功能。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 0,
+          "p95Ms": 0
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e24",
+      "skill": "quick_explain",
+      "requiredTools": [],
+      "allowedTools": [],
+      "tools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "unnecessaryTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "toolHit": false,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 3,
+      "llmCalls": 3,
+      "latencyMs": 7308,
+      "tokens": 2165,
+      "contentPreview": "云备份恢复前需要用户确认，主要原因是防止误操作导致数据丢失。恢复操作会覆盖现有数据，用户确认可以确保操作意图正确，避免因误点或系统错误造成不可逆的数据损失。这是数据安全的重要保障措施。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        },
+        "search_bank": {
+          "calls": 1,
+          "avgMs": 0,
+          "p95Ms": 0
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e25",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 3200,
+      "tokens": 1469,
+      "contentPreview": "复位信号RST高电平有效，至少需要维持2个机器周期才能确保可靠复位[1]。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e26",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 7600,
+      "tokens": 1483,
+      "contentPreview": "8051的机器周期通常包含12个振荡周期[1]。这是8051单片机的基本时序特性，每个机器周期由12个时钟周期组成，用于完成一个基本操作。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e27",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 8720,
+      "tokens": 1502,
+      "contentPreview": "8051的P3.0第二功能是RXD串行输入口，P3.1第二功能是TXD串行输出口[1]。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e28",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 4540,
+      "tokens": 1500,
+      "contentPreview": "EA引脚为高电平时，CPU执行片内ROM中的指令，当PC值超过片内ROM范围时，自动转向执行片外ROM中的指令 [1]。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "e29",
+      "skill": "grounded_explain",
+      "requiredTools": [
+        "search_materials"
+      ],
+      "allowedTools": [
+        "search_materials",
+        "search_bank"
+      ],
+      "tools": [
+        "search_materials"
+      ],
+      "unnecessaryTools": [],
+      "toolHit": true,
+      "citationOk": true,
+      "noEvidenceOk": true,
+      "noLeak": true,
+      "rounds": 2,
+      "llmCalls": 2,
+      "latencyMs": 3362,
+      "tokens": 1505,
+      "contentPreview": "根据教材[1]，准双向口输入前需要先向锁存器写1，这是为了确保输入操作能够获得正确结果。写入1会使端口处于高阻态，避免内部电路对输入信号的干扰，保证外部信号能够被正确读取。",
+      "toolLatency": {
+        "search_materials": {
+          "calls": 1,
+          "avgMs": 1,
+          "p95Ms": 1
+        }
+      },
+      "error": null
+    }
+  ]
+}
