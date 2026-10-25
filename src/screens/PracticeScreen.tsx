@@ -463,13 +463,9 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
           });
           return;
         }
-        const hits = await searchMaterialsSmart(
-          db,
-          searchText,
-          // 取 10 段：3 字滑窗召回宽，正确段落可能排在 5 名之后（实测真实课件最差第 9 名）
-          10,
-          boundIds.length > 0 ? boundIds : undefined,
-        );
+        const hits = boundIds.length > 0
+          ? await searchMaterialsSmart(db, searchText, 10, boundIds)
+          : [];
         const evidence: RagEvidence[] = hits.map((h, i) => ({
           index: i + 1,
           text: clipHitText(h.text, terms),

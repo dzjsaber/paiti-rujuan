@@ -28,7 +28,8 @@ export function renderExplainPrompt(q: ExplainQuestionInput): string {
 1. 直接给结论（正确答案），再给与本题直接相关的关键要点；不要复述题面，不要展开无关知识；
 2. 正文不超过 150 个中文字；
 3. 如果题目信息不足以确定答案，必须明确说明"题目信息不足，无法确定"，禁止编造；
-4. 只输出讲解正文，不要使用 Markdown 代码围栏，不要输出 JSON。
+4. 如果已知答案与题干、选项或推理明显冲突，必须明确提示"题目或答案可能有误"，不要强行为错误答案辩护；
+5. 只输出讲解正文，不要使用 Markdown 代码围栏，不要输出 JSON。
 
 题目：
 ${renderQuestionBlock(q)}`;

@@ -68,6 +68,7 @@ check('renderExplainPrompt：包含题干/选项/答案与关键要求', () => {
   assert(p.includes('已知答案：A'), '含答案');
   assert(p.includes('150'), '含字数要求（精简版 ≤150 字）');
   assert(p.includes('禁止编造'), '含防编造要求');
+  assert(p.includes('题目或答案可能有误'), '含题目/答案冲突提示');
 });
 
 check('renderExplainPrompt：判断题（无选项）', () => {
@@ -86,6 +87,7 @@ check('renderRagPrompt：依据编号/来源/固定回复要求', () => {
   assert(p.includes('教材片段一') && p.includes('教材片段二'), '含依据正文');
   assert(p.includes('当前导入教材未覆盖该知识点'), '含固定回复句');
   assert(p.includes('禁止伪造引用'), '含防伪引用要求');
+  assert(p.includes('题目或答案可能有误'), '含题目/答案冲突提示');
   assert(p.includes('（试卷未提供答案）'), '无答案时标注');
   assert(p.includes('150') && p.includes('不要复述'), '含精简要求');
 });

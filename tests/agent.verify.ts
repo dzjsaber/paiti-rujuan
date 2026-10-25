@@ -225,6 +225,12 @@ async function main(): Promise<void> {
       AGENT_SKILLS.wrongbook_review.tools.includes('get_related_wrong'),
       '错题技能应开放错题工具',
     );
+    const unboundWrong = selectAgentSkill({
+      mode: 'wrong',
+      hasBoundMaterials: false,
+      stem: '错题复习',
+    });
+    assert(!unboundWrong.tools.includes('search_materials'), '未绑定教材的错题复盘不应开放教材工具');
   });
 
   await check('工具结果中的注入文本被标记为不可信数据', async () => {

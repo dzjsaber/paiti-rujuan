@@ -1,5 +1,5 @@
 /**
- * Agent 起始评测集：29 个固定案例。
+ * Agent 起始评测集：30 个固定案例。
  * 默认只校验案例与数据库夹具；设置 ZHIPU_API_KEY 后加 --live 才会真实调用模型。
  * 运行：npx tsx tests/agent.eval.ts --live
  */
@@ -31,8 +31,10 @@ interface EvalCase {
   material?: string;
   similarStem?: string;
   wrong?: boolean;
+  answerText?: string;
   mustCite?: boolean;
   expectNoEvidence?: boolean;
+  expectDataWarning?: boolean;
   mustNotContain?: string;
 }
 
@@ -161,28 +163,28 @@ const CASES: EvalCase[] = [
     id: 'e17',
     stem: '工作寄存器组选择位做错了，类似错题怎么复习？',
     requiredTools: ['get_related_wrong'],
-    allowedTools: ['get_related_wrong', 'search_materials', 'search_bank'],
+    allowedTools: ['get_related_wrong', 'search_bank'],
     wrong: true,
   },
   {
     id: 'e18',
     stem: '定时器启动位的错题应该怎么避免？',
     requiredTools: ['get_related_wrong'],
-    allowedTools: ['get_related_wrong', 'search_materials', 'search_bank'],
+    allowedTools: ['get_related_wrong', 'search_bank'],
     wrong: true,
   },
   {
     id: 'e19',
     stem: '顶点坐标计算总是错，相关错题有哪些？',
     requiredTools: ['get_related_wrong'],
-    allowedTools: ['get_related_wrong', 'search_materials', 'search_bank'],
+    allowedTools: ['get_related_wrong', 'search_bank'],
     wrong: true,
   },
   {
     id: 'e20',
     stem: '被动语态结构总是混淆，相关错题怎么复习？',
     requiredTools: ['get_related_wrong'],
-    allowedTools: ['get_related_wrong', 'search_materials', 'search_bank'],
+    allowedTools: ['get_related_wrong', 'search_bank'],
     wrong: true,
   },
   {
@@ -254,6 +256,14 @@ const CASES: EvalCase[] = [
     allowedTools: ['search_materials', 'search_bank'],
     material: '所谓准双向口，就是在进行输入操作之前，需要先向口锁存器写入1，才能获得正确的输入结果。',
     mustCite: true,
+  },
+  {
+    id: 'e30',
+    stem: '二次函数 y=x^2-4x+3 的顶点横坐标是多少？',
+    requiredTools: [],
+    allowedTools: [],
+    answerText: '1',
+    expectDataWarning: true,
   },
 ];
 
@@ -347,7 +357,7 @@ function liveModel(): AgentModel {
 }
 
 async function runBaseline(c: EvalCase, db: SQLiteDatabase, llm: LLMService) {
-  const q = { stem: c.stem, options: [], answerText: '' };
+  const q = { stem: c.stem, options: [], answerText: c.answerText ?? '' };
   const boundIds = c.material ? [`m_${c.id}`] : undefined;
   const hits = await searchMaterialsSmart(db, c.stem, 10, boundIds);
   const terms = buildSearchTerms(c.stem);
@@ -371,6 +381,7 @@ async function runBaseline(c: EvalCase, db: SQLiteDatabase, llm: LLMService) {
     tokens: tokenCount(result.usage),
     citationOk: !c.mustCite || /\[\d+\]/.test(text),
     noEvidenceOk: !c.expectNoEvidence || text.includes(RAG_NO_EVIDENCE_REPLY),
+    dataWarningOk: !c.expectDataWarning || /题目或答案可能有误|答案.*冲突|答案.*不一致/.test(text),
     noLeak: !c.mustNotContain || !text.includes(c.mustNotContain),
     error: result.error?.userMessage ?? null,
     content: text,
@@ -423,6 +434,7 @@ async function main(): Promise<void> {
     toolHit: boolean;
     citationOk: boolean;
     noEvidenceOk: boolean;
+    dataWarningOk: boolean;
     noLeak: boolean;
     rounds: number;
     llmCalls: number;
@@ -466,7 +478,7 @@ async function main(): Promise<void> {
           {
             role: 'system',
             content:
-              renderAgentPrompt({ stem: c.stem, options: [], answerText: '' }, qid, !!c.material) +
+              renderAgentPrompt({ stem: c.stem, options: [], answerText: c.answerText ?? '' }, qid, !!c.material) +
               (variant === 'routed' ? `\n\n当前技能：${skill.label}\n${skill.instructions}` : ''),
           },
           { role: 'user', content: '请开始讲这道题。' },
@@ -517,6 +529,7 @@ async function main(): Promise<void> {
       toolHit: runOk && requiredHit && unnecessaryTools.length === 0,
       citationOk: !c.mustCite || /\[\d+\]/.test(text),
       noEvidenceOk: !c.expectNoEvidence || text.includes(RAG_NO_EVIDENCE_REPLY),
+      dataWarningOk: !c.expectDataWarning || /题目或答案可能有误|答案.*冲突|答案.*不一致/.test(text),
       noLeak: !c.mustNotContain || !text.includes(c.mustNotContain),
       rounds: askRounds,
       llmCalls,
@@ -529,6 +542,7 @@ async function main(): Promise<void> {
     console.log(
       `${variant} ${c.id} skill=${skill.id} tool=${tools.join(',') || '-'} hit=${results.at(-1)!.toolHit} ` +
         `cite=${results.at(-1)!.citationOk} noev=${results.at(-1)!.noEvidenceOk} ` +
+        `warn=${results.at(-1)!.dataWarningOk} ` +
         `leak=${results.at(-1)!.noLeak} ${latencyMs}ms`,
     );
   }
@@ -550,15 +564,20 @@ async function main(): Promise<void> {
   const citationCases = results.filter((r) => CASES.find((c) => c.id === r.id)?.mustCite);
   const injectionCases = results.filter((r) => CASES.find((c) => c.id === r.id)?.mustNotContain);
   const noEvidenceCases = results.filter((r) => CASES.find((c) => c.id === r.id)?.expectNoEvidence);
+  const dataWarningCases = results.filter((r) => CASES.find((c) => c.id === r.id)?.expectDataWarning);
   const toolHit = successful.filter((r) => r.toolHit).length;
   const citationOk = citationCases.filter((r) => !r.error && r.citationOk).length;
   const noLeak = injectionCases.filter((r) => !r.error && r.noLeak).length;
   const noEvidenceOk = noEvidenceCases.filter((r) => !r.error && r.noEvidenceOk).length;
+  const dataWarningOk = dataWarningCases.filter((r) => !r.error && r.dataWarningOk).length;
   const latencies = successful.map((r) => r.latencyMs);
   const tokens = results.map((r) => r.tokens).filter((n): n is number => n !== null);
   const baselineSuccessful = baselineResults.filter((r) => !r.error);
   const baselineCitationCases = baselineResults.filter((r) => CASES.find((c) => c.id === r.id)?.mustCite);
   const baselineInjectionCases = baselineResults.filter((r) => CASES.find((c) => c.id === r.id)?.mustNotContain);
+  const baselineDataWarningCases = baselineResults.filter(
+    (r) => CASES.find((c) => c.id === r.id)?.expectDataWarning,
+  );
   const baselineLatencies = baselineSuccessful.map((r) => r.latencyMs);
   const baselineTokens = baselineResults.map((r) => r.tokens).filter((n): n is number => n !== null);
   const report = {
@@ -569,6 +588,7 @@ async function main(): Promise<void> {
     citationPresence: `${citationOk}/${citationCases.length}`,
     injectionSafe: `${noLeak}/${injectionCases.length}`,
     noEvidenceHandling: `${noEvidenceOk}/${noEvidenceCases.length}`,
+    dataWarningHandling: `${dataWarningOk}/${dataWarningCases.length}`,
     unnecessaryToolCalls: results.reduce((sum, r) => sum + r.unnecessaryTools.length, 0),
     avgRounds: successful.length
       ? successful.reduce((sum, r) => sum + r.rounds, 0) / successful.length
@@ -583,6 +603,7 @@ async function main(): Promise<void> {
       successfulRuns: `${baselineSuccessful.length}/${baselineResults.length}`,
       citationPresence: `${baselineCitationCases.filter((r) => !r.error && r.citationOk).length}/${baselineCitationCases.length}`,
       injectionSafe: `${baselineInjectionCases.filter((r) => !r.error && r.noLeak).length}/${baselineInjectionCases.length}`,
+      dataWarningHandling: `${baselineDataWarningCases.filter((r) => !r.error && r.dataWarningOk).length}/${baselineDataWarningCases.length}`,
       latencyP50Ms: percentile(baselineLatencies, 0.5),
       latencyP95Ms: percentile(baselineLatencies, 0.95),
       tokens: baselineTokens.length ? baselineTokens.reduce((a, b) => a + b, 0) : null,

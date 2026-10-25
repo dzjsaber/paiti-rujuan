@@ -33,13 +33,21 @@ export const AGENT_SKILLS: Record<AgentSkillId, AgentSkill> = {
   },
 };
 
+const WRONGBOOK_REVIEW_UNBOUND: AgentSkill = {
+  id: 'wrongbook_review',
+  label: '错题复盘（未绑定教材）',
+  tools: ['get_related_wrong', 'search_bank'],
+  instructions:
+    '这是错题复盘场景：先调用 get_related_wrong，结合错误次数和最近时间给出复习建议；当前题库未绑定教材，禁止检索或引用教材。',
+};
+
 export function selectAgentSkill(input: {
   mode: 'bank' | 'wrong';
   hasBoundMaterials: boolean;
   stem: string;
 }): AgentSkill {
   if (input.mode === 'wrong' || /错题|错误|复习|同类/.test(input.stem)) {
-    return AGENT_SKILLS.wrongbook_review;
+    return input.hasBoundMaterials ? AGENT_SKILLS.wrongbook_review : WRONGBOOK_REVIEW_UNBOUND;
   }
   if (input.hasBoundMaterials) return AGENT_SKILLS.grounded_explain;
   return AGENT_SKILLS.quick_explain;
