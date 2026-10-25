@@ -74,6 +74,11 @@ interface ExplainState {
   status?: string | null;
 }
 
+interface FollowUpMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
 function parseRow(row: QuestionRow): ParsedQuestion {
   const options = JSON.parse(row.options_json) as { id: string; text: string }[];
   const answer = JSON.parse(row.answer_json) as unknown;
@@ -139,6 +144,9 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
   const [explain, setExplain] = useState<ExplainState | null>(null);
   /** 教材依据默认收起，避免讲解卡片带出一大串 */
   const [showEvidence, setShowEvidence] = useState(false);
+  const [followUps, setFollowUps] = useState<FollowUpMessage[]>([]);
+  const [followUpInput, setFollowUpInput] = useState('');
+  const [followUpBusy, setFollowUpBusy] = useState(false);
   /** 讲解请求序号：翻页/重新生成后让在途结果作废，避免显示到别的题上 */
   const explainSeqRef = useRef(0);
   const [explainProvider, setExplainProvider] = useState<ExplainProviderId>('zhipu_free');
@@ -193,6 +201,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     setTextAnswer('');
     setResult(null);
     setExplain(null);
+    setFollowUps([]);
+    setFollowUpInput('');
     setShowEvidence(false);
     if (idx + 1 >= questions.length) {
       setStage('finished');
@@ -266,6 +276,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
     setTextAnswer('');
     setResult(null);
     setExplain(null);
+    setFollowUps([]);
+    setFollowUpInput('');
     setShowEvidence(false);
     setIdx(i);
     setStage('answering');
@@ -326,6 +338,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         saved: null,
         status: '正在生成讲解…',
       });
+      setFollowUps([]);
+      setFollowUpInput('');
       try {
         const input = { stem: q.stem, options: q.options, answerText: q.answerText };
         const searchText = `${q.stem}\n${q.options.map((o) => o.text).join('\n')}`;
@@ -554,6 +568,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
         if (explainSeqRef.current === seq) setExplain(s);
       };
       apply({ loading: true, text: null, error: null, evidence: [], usedLibrary: false, noEvidence: false, fallback: mode, saved: null });
+      setFollowUps([]);
+      setFollowUpInput('');
       try {
         let acc = '';
         let lastFlush = 0;
@@ -615,6 +631,8 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
               await setQuestionExplanation(db, q.id, null);
               setQuestions((prev) => prev.map((x) => (x.id === q.id ? { ...x, explanation: null } : x)));
               setExplain(null);
+              setFollowUps([]);
+              setFollowUpInput('');
             } catch (e) {
               Alert.alert('删除失败', String((e as Error)?.message ?? e));
             }
@@ -631,6 +649,125 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
       custom: await getCustomConfig(),
     });
   }, [explainProvider]);
+
+  const sendFollowUp = useCallback(async () => {
+    const question = followUpInput.trim();
+    if (!q || !question) return;
+    if (followUps.filter((m) => m.role === 'user').length >= 3) {
+      Alert.alert('追问次数已满', '当前讲解最多追问 3 轮，切换题目或重新生成后会清空。');
+      return;
+    }
+    if (question.length > 500) {
+      Alert.alert('追问太长', '请把问题控制在 500 字以内。');
+      return;
+    }
+    const currentText =
+      explain?.text ??
+      (q.explanation && !isNoEvidenceAnswer(q.explanation) ? q.explanation : null);
+    if (!currentText) return;
+    const seq = explainSeqRef.current;
+    const target = await resolveTarget();
+    if (explainSeqRef.current !== seq) return;
+    if (target.kind !== 'api') {
+      Alert.alert(
+        '无法追问',
+        target.kind === 'missing_config' ? target.message : '当前为分享模式，请先切换到应用内讲解。',
+      );
+      return;
+    }
+
+    const evidence = explain?.evidence ?? [];
+    const evidenceBlock =
+      evidence.length > 0
+        ? evidence.map((e) => `[${e.index}]（${e.source}）\n${e.text}`).join('\n\n')
+        : '（当前讲解没有教材依据）';
+    const messages = [
+      {
+        role: 'system',
+        content: `你正在回答学生对当前题目和当前讲解的追问。
+规则：
+1. 只回答追问本身，不要重新输出整段讲解；
+2. 不得调用工具，不得伪造新的教材引用；
+3. ${evidence.length > 0 ? '只能使用下方已有教材依据；引用时写实际编号。' : '当前没有教材依据，不要声称引用了教材。'}
+4. 如果现有信息不足，明确说明“依据不足，无法确定”，不要猜测；
+5. 如果用户指出题目或答案有误，先核对冲突并明确提示“题目或答案可能有误”；
+6. 回答不超过 200 个中文字。`,
+      },
+      {
+        role: 'user',
+        content:
+          `题目：${q.stem}\n` +
+          `选项：${q.options.length ? q.options.map((o) => `${o.id}. ${o.text}`).join(' / ') : '判断题'}\n` +
+          `已知答案：${q.answerText || '未提供'}\n` +
+          `当前讲解：${currentText}\n\n教材依据：\n${evidenceBlock}`,
+      },
+      ...followUps.map((m) => ({ role: m.role, content: m.text })),
+      { role: 'user', content: question },
+    ];
+
+    const history = [...followUps, { role: 'user' as const, text: question }, { role: 'assistant' as const, text: '' }];
+    setFollowUps(history);
+    setFollowUpInput('');
+    setFollowUpBusy(true);
+    const assistantIndex = history.length - 1;
+    try {
+      let acc = '';
+      let lastFlush = 0;
+      const r = await llm.completeStream(
+        '',
+        {
+          messages,
+          model: target.model,
+          endpoint: { url: target.url, apiKey: target.apiKey },
+          temperature: 0.3,
+          maxTokens: 700,
+          timeoutMs: 60000,
+          thinking: 'disabled',
+        },
+        (delta) => {
+          acc += delta;
+          const now = Date.now();
+          if (now - lastFlush >= 80) {
+            lastFlush = now;
+            setFollowUps((prev) => {
+              if (explainSeqRef.current !== seq) return prev;
+              const next = [...prev];
+              const current = next[assistantIndex];
+              if (current?.role === 'assistant') next[assistantIndex] = { ...current, text: acc };
+              return next;
+            });
+          }
+        },
+      );
+      if (r.ok && acc.trim()) {
+        setFollowUps((prev) => {
+          if (explainSeqRef.current !== seq) return prev;
+          const next = [...prev];
+          const current = next[assistantIndex];
+          if (current?.role === 'assistant') next[assistantIndex] = { ...current, text: acc.trim() };
+          return next;
+        });
+      } else {
+        const message = r.error?.userMessage ?? '模型没有返回内容';
+        setFollowUps((prev) => {
+          const next = [...prev];
+          const current = next[assistantIndex];
+          if (current?.role === 'assistant') next[assistantIndex] = { ...current, text: `追问失败：${message}` };
+          return next;
+        });
+      }
+    } catch (e) {
+      setFollowUps((prev) => {
+        if (explainSeqRef.current !== seq) return prev;
+        const next = [...prev];
+        const current = next[assistantIndex];
+        if (current?.role === 'assistant') next[assistantIndex] = { ...current, text: `追问失败：${String(e)}` };
+        return next;
+      });
+    } finally {
+      if (explainSeqRef.current === seq) setFollowUpBusy(false);
+    }
+  }, [explain, followUpInput, followUps, llm, q, resolveTarget]);
 
   /** 讲解入口：应用内生成 或 分享到豆包等外部应用 */
   const onExplainPress = useCallback(async () => {
@@ -976,6 +1113,49 @@ export function PracticeScreen({ db, llm, mode, order, onDone }: PracticeScreenP
                   </Pressable>
                 </View>
                 )}
+                {!shownExplain.loading && explainProvider !== 'external' && (
+                  <View style={styles.followUpBox}>
+                    <Text style={styles.followUpLabel}>继续追问</Text>
+                    {followUps.map((message, index) => (
+                      <View
+                        key={`${message.role}-${index}`}
+                        style={[
+                          styles.followUpMessage,
+                          message.role === 'user' ? styles.followUpUser : styles.followUpAssistant,
+                        ]}
+                      >
+                        {message.role === 'assistant' ? (
+                          <MathText text={message.text || '思考中…'} style={styles.followUpText} />
+                        ) : (
+                          <Text style={styles.followUpText}>{message.text}</Text>
+                        )}
+                      </View>
+                    ))}
+                    <View style={styles.followUpRow}>
+                      <TextInput
+                        style={styles.followUpInput}
+                        value={followUpInput}
+                        onChangeText={setFollowUpInput}
+                        placeholder="还有哪里不明白？"
+                        multiline
+                        maxLength={500}
+                        editable={!followUpBusy}
+                      />
+                      <Pressable
+                        style={[styles.followUpSend, (!followUpInput.trim() || followUpBusy) && styles.disabledBtn]}
+                        onPress={() => void sendFollowUp()}
+                        disabled={!followUpInput.trim() || followUpBusy}
+                      >
+                        {followUpBusy ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.followUpSendText}>发送</Text>
+                        )}
+                      </Pressable>
+                    </View>
+                    <Text style={styles.followUpHint}>最多 3 轮；切换题目或重新生成后清空，不写入本地备份。</Text>
+                  </View>
+                )}
               </View>
             ) : null}
             {q.sourceImage ? (
@@ -1151,6 +1331,35 @@ const styles = StyleSheet.create({
   explainActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
   smallBtn: { borderRadius: 8, borderWidth: 1, borderColor: '#cfd9ea', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 7 },
   smallBtnText: { color: '#31518a', fontSize: 12 },
+  followUpBox: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#dbe5f3' },
+  followUpLabel: { fontSize: 13, fontWeight: '700', color: '#31518a' },
+  followUpMessage: { marginTop: 8, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8 },
+  followUpUser: { alignSelf: 'flex-end', backgroundColor: '#eaf1fd' },
+  followUpAssistant: { alignSelf: 'flex-start', backgroundColor: '#fff' },
+  followUpText: { fontSize: 13, color: '#333', lineHeight: 20 },
+  followUpRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 10 },
+  followUpInput: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 110,
+    backgroundColor: '#fff',
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#dbe1ec',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+  },
+  followUpSend: {
+    height: 42,
+    minWidth: 56,
+    borderRadius: 9,
+    backgroundColor: '#31518a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followUpSendText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  followUpHint: { marginTop: 6, fontSize: 11, color: '#8a94a6', lineHeight: 16 },
   smallDeleteBtn: { borderRadius: 8, borderWidth: 1, borderColor: '#e3b4ae', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 7 },
   smallDeleteText: { color: '#c0392b', fontSize: 12 },
   srcBtn: { marginTop: 12, alignSelf: 'flex-start', backgroundColor: '#e8f0ff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
